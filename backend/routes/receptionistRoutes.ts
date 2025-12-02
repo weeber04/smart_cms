@@ -1,41 +1,60 @@
+// routes/receptionistRoutes.ts
 import express from 'express';
+
 import {
+  // Profile & Dashboard
   getReceptionistProfile,
-  getAppointments,
-  getTodayVisits,
-  getBillingRecords,
-  getDoctors,
+  getDashboardStats,
+  
+  // Patient Management
   registerPatient,
   searchPatient,
+  getPatientDetails,
+  
+  // Appointment Management
+  getAppointments,
   scheduleAppointment,
+  cancelAppointment,
+  
+  // Waiting List & Check-in
+  getTodayVisits,
   checkInPatient,
   updateVisitStatus,
+  
+  // Billing
+  getBillingRecords,
   processPayment,
-  getPatientAppointments,
-  cancelAppointment,
-  scheduleFollowUp
+  
+  // Doctors
+  getDoctors,
+
+    // NEW: Walk-in registration
+  registerWalkIn
 } from '../controllers/receptionistController';
 
 const router = express.Router();
 
-// Profile
+// Profile & Dashboard
 router.get('/profile/:receptionistId', getReceptionistProfile);
-
-// Appointments
-router.get('/appointments', getAppointments); // All appointments
-router.get('/patient-appointments/:patientId', getPatientAppointments);
-router.post('/schedule-appointment', scheduleAppointment);
-router.post('/schedule-followup', scheduleFollowUp);
-router.post('/cancel-appointment', cancelAppointment);
-
-// Visits
-router.get('/today-visits', getTodayVisits);
-router.post('/check-in', checkInPatient);
-router.post('/update-visit-status', updateVisitStatus);
+router.get('/dashboard-stats', getDashboardStats);
 
 // Patient Management
 router.get('/search-patient', searchPatient);
+router.get('/patient/:patientId', getPatientDetails);
 router.post('/register-patient', registerPatient);
+
+// NEW: Walk-in registration route
+router.post('/walkin', registerWalkIn);
+
+// Appointment Management
+router.get('/appointments', getAppointments);
+router.post('/schedule-appointment', scheduleAppointment);
+router.post('/cancel-appointment', cancelAppointment);
+
+// Waiting List & Check-in
+router.get('/today-visits', getTodayVisits);
+router.post('/check-in', checkInPatient);
+router.post('/update-visit-status', updateVisitStatus);
 
 // Billing
 router.get('/billing', getBillingRecords);
