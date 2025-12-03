@@ -281,34 +281,90 @@ export const registerWalkIn = async (req, res) => {
   }
 };
 
-export const searchPatient = async (req, res) => {
+export const searchPatient = async (req: Request, res: Response) => {
   const { search } = req.query;
   
   try {
     // If search is empty or undefined, return empty array
-    if (!search || search.trim() === '') {
+    if (!search || (typeof search === 'string' && search.trim() === '')) {
       return res.json([]);
     }
 
-    const searchTerm = `%${search}%`;
+    // Handle if search is an array (take the first element)
+    const searchTerm = typeof search === 'string' 
+      ? `%${search}%` 
+      : Array.isArray(search) && search.length > 0 && typeof search[0] === 'string'
+        ? `%${search[0]}%`
+        : '%%';
     
-    const [patients]: any = await db.query(`
+    const today = new Date().toISOString().split('T')[0];
+    
+    const query = `
       SELECT 
-        PatientID as id, 
-        Name, 
-        ICNo, 
-        PhoneNumber, 
-        Email,
-        Gender,
-        DATE_FORMAT(DOB, '%Y-%m-%d') as DOB,
-        BloodType
-      FROM Patient 
-      WHERE Name LIKE ? OR ICNo LIKE ? OR PhoneNumber LIKE ?
-      ORDER BY Name
+        p.PatientID as id, 
+        p.Name, 
+        p.ICNo, 
+        p.PhoneNumber, 
+        p.Email,
+        p.Gender,
+        DATE_FORMAT(p.DOB, '%Y-%m-%d') as DOB,
+        p.BloodType,
+        latest_pv.VisitID as activeVisitId,
+        latest_pv.VisitStatus,
+        latest_pv.QueueStatus,
+        latest_pv.QueueNumber,
+        latest_pv.ArrivalTime,
+        CASE 
+          WHEN latest_pv.VisitID IS NULL THEN 'no-visit-today'
+          WHEN latest_pv.QueueStatus IN ('completed', 'cancelled') THEN 'completed-or-cancelled'
+          ELSE 'active-visit'
+        END as queueStatusCategory
+      FROM Patient p
+      LEFT JOIN (
+        -- Get only the LATEST visit for each patient today
+        SELECT 
+          pv1.PatientID,
+          pv1.VisitID,
+          pv1.VisitStatus,
+          pv1.QueueStatus,
+          pv1.QueueNumber,
+          pv1.ArrivalTime
+        FROM patient_visit pv1
+        WHERE DATE(pv1.ArrivalTime) = ?
+          AND pv1.VisitID = (
+            SELECT MAX(pv2.VisitID)
+            FROM patient_visit pv2
+            WHERE pv2.PatientID = pv1.PatientID
+              AND DATE(pv2.ArrivalTime) = ?
+          )
+      ) latest_pv ON p.PatientID = latest_pv.PatientID
+      WHERE (p.Name LIKE ? OR p.ICNo LIKE ? OR p.PhoneNumber LIKE ?)
+      GROUP BY p.PatientID  -- Ensure unique patients
+      ORDER BY 
+        CASE 
+          WHEN latest_pv.QueueStatus IN ('waiting', 'in-progress') THEN 1
+          WHEN latest_pv.QueueStatus IN ('completed', 'cancelled') THEN 2
+          ELSE 3
+        END,
+        p.Name
       LIMIT 20
-    `, [searchTerm, searchTerm, searchTerm]);
+    `;
     
-    res.json(patients);
+    const [patients]: any = await db.query(query, [today, today, searchTerm, searchTerm, searchTerm]);
+    
+    // Format the response
+    const formattedPatients = patients.map((patient: any) => ({
+      ...patient,
+      canRegister: patient.queueStatusCategory !== 'active-visit', // Can register if not active visit
+      queueInfo: patient.activeVisitId ? {
+        queueNumber: patient.QueueNumber,
+        queueStatus: patient.QueueStatus,
+        visitStatus: patient.VisitStatus,
+        arrivalTime: patient.ArrivalTime
+      } : null
+    }));
+    
+    res.json(formattedPatients);
   } catch (error) {
     console.error("Patient search error:", error);
     res.status(500).json({ error: "Search failed" });
@@ -480,6 +536,7 @@ export const cancelAppointment = async (req: Request, res: Response) => {
 
 // ============ WAITING LIST / CHECK-IN ============
 // controllers/receptionistController.ts - Update getTodayVisits function
+// In receptionistController.ts - update getTodayVisits
 export const getTodayVisits = async (req: Request, res: Response) => {
   try {
     const [visits]: any = await db.query(`
@@ -493,23 +550,30 @@ export const getTodayVisits = async (req: Request, res: Response) => {
         pv.CheckInTime,
         pv.ReasonForVisit,
         p.Name as patientName,
+        p.PhoneNumber,
         u.Name as doctorName,
         pv.DoctorID,
         pv.PatientID,
         pv.VisitType,
-        CONCAT('walk-in') as visitTypeLabel
+        CASE 
+          WHEN pv.VisitType = 'walk-in' THEN 'Walk-in'
+          WHEN pv.VisitType = 'first-time' THEN 'First Visit'
+          WHEN pv.VisitType = 'follow-up' THEN 'Follow-up'
+          ELSE pv.VisitType
+        END as visitTypeLabel
       FROM patient_visit pv
       JOIN patient p ON pv.PatientID = p.PatientID
       LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
-      WHERE DATE(pv.ArrivalTime) = CURDATE()
-        AND pv.QueueStatus NOT IN ('completed', 'cancelled')
+      WHERE DATE(pv.ArrivalTime) = CURDATE()  -- ALL visits today
       ORDER BY 
         CASE pv.QueueStatus 
           WHEN 'in-progress' THEN 1 
           WHEN 'waiting' THEN 2 
-          ELSE 3 
+          WHEN 'checked-in' THEN 3
+          ELSE 4
         END,
-        pv.QueuePosition
+        pv.QueuePosition,
+        pv.ArrivalTime DESC
     `);
     
     res.json(visits);
@@ -587,6 +651,58 @@ export const updateVisitStatus = async (req: Request, res: Response) => {
       success: false,
       error: "Failed to update visit status"
     });
+  }
+};
+
+// In receptionistController.ts
+
+export const cancelVisit = async (req: Request, res: Response) => {
+  const { visitId, reason, cancelledBy } = req.body;
+
+  try {
+    const [result]: any = await db.query(
+      `UPDATE patient_visit 
+       SET 
+         VisitStatus = 'cancelled',
+         QueueStatus = 'cancelled',
+         VisitNotes = CONCAT(COALESCE(VisitNotes, ''), '\nCancelled by ${cancelledBy}: ${reason}')
+       WHERE VisitID = ?`,
+      [visitId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Visit not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Cancel visit error:", error);
+    res.status(500).json({ error: "Failed to cancel visit" });
+  }
+};
+
+export const markNoShow = async (req: Request, res: Response) => {
+  const { visitId } = req.body;
+
+  try {
+    const [result]: any = await db.query(
+      `UPDATE patient_visit 
+       SET 
+         VisitStatus = 'no-show',
+         QueueStatus = 'cancelled',
+         VisitNotes = CONCAT(COALESCE(VisitNotes, ''), '\nMarked as No Show')
+       WHERE VisitID = ?`,
+      [visitId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Visit not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("No show error:", error);
+    res.status(500).json({ error: "Failed to mark as no show" });
   }
 };
 

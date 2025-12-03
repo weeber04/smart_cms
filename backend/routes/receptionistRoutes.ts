@@ -27,6 +27,8 @@ import {
   
   // Doctors
   getDoctors,
+  cancelVisit,
+  markNoShow,
 
     // NEW: Walk-in registration
   registerWalkIn
@@ -55,6 +57,9 @@ router.post('/cancel-appointment', cancelAppointment);
 router.get('/today-visits', getTodayVisits);
 router.post('/check-in', checkInPatient);
 router.post('/update-visit-status', updateVisitStatus);
+// In receptionistRoutes.ts
+router.post('/cancel-visit', cancelVisit);
+router.post('/mark-noshow', markNoShow);
 
 // Billing
 router.get('/billing', getBillingRecords);
