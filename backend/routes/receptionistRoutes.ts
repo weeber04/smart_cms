@@ -36,6 +36,13 @@ import {
 
 const router = express.Router();
 
+// In your receptionistRoutes.ts
+router.get('/search-patient', searchPatient);
+router.post('/walkin', registerWalkIn);
+router.post('/cancel-visit', cancelVisit);
+router.post('/mark-noshow', markNoShow);
+// ... other routes
+
 // Profile & Dashboard
 router.get('/profile/:receptionistId', getReceptionistProfile);
 router.get('/dashboard-stats', getDashboardStats);
@@ -57,9 +64,6 @@ router.post('/cancel-appointment', cancelAppointment);
 router.get('/today-visits', getTodayVisits);
 router.post('/check-in', checkInPatient);
 router.post('/update-visit-status', updateVisitStatus);
-// In receptionistRoutes.ts
-router.post('/cancel-visit', cancelVisit);
-router.post('/mark-noshow', markNoShow);
 
 // Billing
 router.get('/billing', getBillingRecords);

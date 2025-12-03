@@ -6,6 +6,7 @@ import userRoutes from "./routes/userRoutes";
 import manageUserRoutes from "./routes/manageUserRoutes";
 import doctorRoutes from "./routes/doctorRoutes";
 import receptionistRoutes from "./routes/receptionistRoutes"; 
+import appointmentRoutes from './routes/appointmentRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -52,6 +53,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/manage-users", manageUserRoutes);
 app.use("/api/doctor", doctorRoutes);
 app.use("/api/receptionist", receptionistRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 // 404 handler for undefined routes
 app.use('*', (req, res) => {

@@ -123,27 +123,29 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
   }, [searchQuery]);
 
   const handleRegisterWalkIn = async () => {
-    if (!selectedPatient) {
-      setError('Please select a patient first');
-      return;
-    }
+  if (!selectedPatient) {
+    setError('Please select a patient first');
+    return;
+  }
 
-    if (selectedPatient.queueInfo && 
-        (selectedPatient.queueInfo.queueStatus === 'waiting' || 
-         selectedPatient.queueInfo.queueStatus === 'in-progress')) {
-      setError('This patient already has an active visit today and cannot be added again');
+  // Add more detailed check
+  if (selectedPatient.queueInfo) {
+    const status = selectedPatient.queueInfo.queueStatus?.toLowerCase();
+    if (status && ['waiting', 'in-progress', 'checked-in'].includes(status)) {
+      setError(`This patient is currently "${selectedPatient.queueInfo.queueStatus}" and cannot be added again`);
       return;
     }
+  }
 
-    if (!walkinFormData.reason.trim()) {
-      setError('Please enter reason for visit');
-      return;
-    }
+  if (!walkinFormData.reason.trim()) {
+    setError('Please enter reason for visit');
+    return;
+  }
 
-    if (!receptionistId) {
-      setError('Receptionist ID is missing');
-      return;
-    }
+  if (!receptionistId) {
+    setError('Receptionist ID is missing');
+    return;
+  }
 
     try {
       console.log('Registering walk-in:', {
