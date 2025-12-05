@@ -1,12 +1,19 @@
-// ReceptionistPortal.tsx - REFACTORED VERSION
+// ReceptionistPortal.tsx - REFACTORED VERSION WITH LOGOUT CONFIRMATION
 import { useState, useEffect } from 'react';
-import { Bell, LogOut, ClipboardList } from 'lucide-react';
-import {  Calendar, Users, Phone, Mail, User, DollarSign, CreditCard, Search } from 'lucide-react';
-import { Card, CardContent } from './ui/card';
-import { Button } from './ui/button';
-import { Avatar, AvatarFallback } from './ui/avatar';
-import { NotificationPanel } from './NotificationPanel';
-import { ProfileModal } from './ProfileModal';
+import { Bell, LogOut, ClipboardList, Calendar, Users } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { Card, CardContent } from '../ui/card';
+import { Button } from '../ui/button';
+import { Avatar, AvatarFallback } from '../ui/avatar';
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '../ui/dialog';
+import { NotificationPanel } from '../NotificationPanel';
+import { ProfileModal } from '../ProfileModal';
 import { RegisterPatient } from './RegisterPatient';
 import { AppointmentSchedule } from './AppointmentSchedule';
 import { BillingManagement } from './BillingManagement';
@@ -14,9 +21,12 @@ import { Dashboard } from './DashboardReceptionist';
 import { CheckInQueue } from './CheckInQueue';
 import { WaitingList } from './WaitingList';
 
-export function ReceptionistPortal({ onSignOut }: { onSignOut: () => void }) {
-const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointments' | 'billing'>('dashboard');
+export function ReceptionistPortal() {
+  const { user, logout } = useAuth();
+  
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointments' | 'billing'>('dashboard');
   const [showProfile, setShowProfile] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false); // Add this state
   
   // Shared data state
   const [receptionistId, setReceptionistId] = useState<number | null>(null);
@@ -27,30 +37,48 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
   const [doctors, setDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Get receptionistId from AuthContext user if available
+  useEffect(() => {
+    if (user?.userId) {
+      setReceptionistId(user.userId);
+    }
+  }, [user]);
+
   useEffect(() => {
     const fetchReceptionistData = async () => {
       try {
         setLoading(true);
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          const user = JSON.parse(storedUser);
-          setReceptionistId(user.userId);
-          
-          // Fetch all data in parallel
-          const [profileRes, appointmentsRes, waitingRoomRes, billingRes, doctorsRes] = await Promise.all([
-            fetch(`http://localhost:3001/api/receptionist/profile/${user.userId}`),
-            fetch(`http://localhost:3001/api/receptionist/appointments`),
-            fetch(`http://localhost:3001/api/receptionist/today-visits`),
-            fetch(`http://localhost:3001/api/receptionist/billing`),
-            fetch(`http://localhost:3001/api/receptionist/doctors`)
-          ]);
-
-          if (profileRes.ok) setReceptionistProfile(await profileRes.json());
-          if (appointmentsRes.ok) setTodayAppointments(await appointmentsRes.json());
-          if (waitingRoomRes.ok) setWaitingRoomList(await waitingRoomRes.json());
-          if (billingRes.ok) setBillingRecords(await billingRes.json());
-          if (doctorsRes.ok) setDoctors(await doctorsRes.json());
+        
+        // Get receptionistId from AuthContext or localStorage
+        let receptionistIdToUse = receptionistId;
+        if (!receptionistIdToUse) {
+          const storedUser = localStorage.getItem('user');
+          if (storedUser) {
+            const userData = JSON.parse(storedUser);
+            receptionistIdToUse = userData.userId;
+            setReceptionistId(userData.userId);
+          }
         }
+        
+        if (!receptionistIdToUse) {
+          console.error('No receptionist ID found');
+          return;
+        }
+        
+        // Fetch all data in parallel
+        const [profileRes, appointmentsRes, waitingRoomRes, billingRes, doctorsRes] = await Promise.all([
+          fetch(`http://localhost:3001/api/receptionist/profile/${receptionistIdToUse}`),
+          fetch(`http://localhost:3001/api/receptionist/appointments`),
+          fetch(`http://localhost:3001/api/receptionist/today-visits`),
+          fetch(`http://localhost:3001/api/receptionist/billing`),
+          fetch(`http://localhost:3001/api/receptionist/doctors`)
+        ]);
+
+        if (profileRes.ok) setReceptionistProfile(await profileRes.json());
+        if (appointmentsRes.ok) setTodayAppointments(await appointmentsRes.json());
+        if (waitingRoomRes.ok) setWaitingRoomList(await waitingRoomRes.json());
+        if (billingRes.ok) setBillingRecords(await billingRes.json());
+        if (doctorsRes.ok) setDoctors(await doctorsRes.json());
       } catch (error) {
         console.error("Error fetching receptionist data:", error);
       } finally {
@@ -59,7 +87,7 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
     };
 
     fetchReceptionistData();
-  }, []);
+  }, [receptionistId]);
 
   // Function to refresh specific data
   const refreshData = async (dataType: 'appointments' | 'waiting' | 'billing') => {
@@ -81,6 +109,11 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
     } catch (error) {
       console.error(`Error refreshing ${dataType}:`, error);
     }
+  };
+
+  const handleSignOut = () => {
+    setShowLogoutConfirm(false);
+    logout();
   };
 
   if (loading) {
@@ -121,14 +154,14 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
                 </AvatarFallback>
               </Avatar>
               <div className="hidden sm:block">
-                <p className="text-sm text-gray-900">{receptionistProfile?.Name || 'Receptionist'}</p>
+                <p className="text-sm text-gray-900">{receptionistProfile?.Name || user?.name || 'Receptionist'}</p>
                 <p className="text-xs text-gray-500">Receptionist</p>
               </div>
             </div>
             <Button 
-              variant="outline"
-              onClick={onSignOut}
-              className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700 hover:border-red-400"
+              variant="destructive"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="hover:bg-red-700 transition-colors"
             >
               <LogOut className="size-4 mr-2" />
               Log Out
@@ -234,7 +267,6 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
           </div>
 
           {/* Tab Content */}
-
           {activeTab === 'dashboard' && (
             <Dashboard
               receptionistId={receptionistId}
@@ -256,7 +288,6 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
             <AppointmentSchedule
               receptionistId={receptionistId}
               doctors={doctors}
-              todayAppointments={todayAppointments}
               refreshData={() => refreshData('appointments')}
             />
           )}
@@ -277,6 +308,33 @@ const [activeTab, setActiveTab] = useState<'dashboard' | 'register' | 'appointme
         onOpenChange={setShowProfile}
         profile={receptionistProfile}
       />
+
+      {/* Logout Confirmation Dialog */}
+      <Dialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Log Out</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to log out of the Receptionist Portal?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 justify-end">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowLogoutConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleSignOut}
+            >
+              <LogOut className="size-4 mr-2" />
+              Log Out
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

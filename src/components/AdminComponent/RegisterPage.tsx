@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Alert, AlertDescription } from './ui/alert';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Alert, AlertDescription } from '../ui/alert';
 import { Phone, MapPin, Clock, Lock, Mail, AlertCircle, User, Building, UserPlus, Heart } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
-export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () => void }) {
+export function RegisterPage() { // Remove props
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -52,41 +54,77 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
       return;
     }
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      setSuccess('Admin registration request submitted successfully! Your account will be reviewed and approved by the system administrator.');
-      console.log('Admin registration attempt:', formData);
-      // Reset form
-      setFormData({
-        fullName: '',
-        email: '',
-        phone: '',
-        role: '',
-        department: '',
-        password: '',
-        confirmPassword: ''
+    try {
+      // Call your API to register new staff
+      const response = await fetch('http://localhost:3001/api/auth/register-staff', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.fullName,
+          email: formData.email,
+          phone: formData.phone,
+          role: formData.role,
+          department: formData.department,
+          password: formData.password
+        })
       });
-    }, 1000);
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setSuccess('Staff member registered successfully!');
+        // Reset form
+        setFormData({
+          fullName: '',
+          email: '',
+          phone: '',
+          role: '',
+          department: '',
+          password: '',
+          confirmPassword: ''
+        });
+      } else {
+        setError(result.error || 'Failed to register staff member');
+      }
+    } catch (error) {
+      setError('Network error. Please try again.');
+      console.error('Registration error:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleBackToDashboard = () => {
+    navigate('/dashboard');
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-blue-50 to-cyan-50">
-      {/* Header */}
+      {/* Header with Back button */}
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleBackToDashboard}
+                className="mr-2"
+              >
+                ← Back
+              </Button>
               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
                 <Heart className="size-6 text-white" />
               </div>
               <div>
                 <h1 className="text-xl text-gray-900">Smart CMS</h1>
-                <p className="text-sm text-gray-500">Management System</p>
+                <p className="text-sm text-gray-500">Staff Registration</p>
               </div>
             </div>
             <div className="hidden md:flex items-center gap-6 text-sm text-gray-600">
@@ -96,7 +134,7 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="size-4" />
-                <span>24/7 Support</span>
+                <span>Admin Portal</span>
               </div>
             </div>
           </div>
@@ -111,9 +149,9 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
               <UserPlus className="size-8 text-white" />
             </div>
             <div>
-              <CardTitle className="text-2xl">Register as Admin</CardTitle>
+              <CardTitle className="text-2xl">Register New Staff Member</CardTitle>
               <CardDescription>
-                Create an administrator account for Smart CMS
+                Add a new staff member to the Smart CMS system
               </CardDescription>
             </div>
           </CardHeader>
@@ -135,7 +173,7 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="fullName">Full Name</Label>
+                  <Label htmlFor="fullName">Full Name *</Label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <Input
@@ -146,22 +184,24 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                       onChange={(e) => handleInputChange('fullName', e.target.value)}
                       className="pl-10"
                       disabled={isLoading}
+                      required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
+                  <Label htmlFor="email">Email Address *</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <Input
                       id="email"
                       type="email"
-                      placeholder="admin@smartcms.com"
+                      placeholder="staff@clinic.com"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
                       className="pl-10"
                       disabled={isLoading}
+                      required
                     />
                   </div>
                 </div>
@@ -169,7 +209,7 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
+                  <Label htmlFor="phone">Phone Number *</Label>
                   <div className="relative">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <Input
@@ -180,27 +220,30 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                       onChange={(e) => handleInputChange('phone', e.target.value)}
                       className="pl-10"
                       disabled={isLoading}
+                      required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="role">Admin Role</Label>
+                  <Label htmlFor="role">Staff Role *</Label>
                   <div className="relative">
                     <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400 z-10" />
                     <Select
                       value={formData.role}
                       onValueChange={(value) => handleInputChange('role', value)}
                       disabled={isLoading}
+                      required
                     >
                       <SelectTrigger id="role" className="pl-10">
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="super-admin">Super Administrator</SelectItem>
+                        <SelectItem value="doctor">Doctor</SelectItem>
+                        <SelectItem value="nurse">Nurse</SelectItem>
+                        <SelectItem value="pharmacist">Pharmacist</SelectItem>
+                        <SelectItem value="receptionist">Receptionist</SelectItem>
                         <SelectItem value="admin">Administrator</SelectItem>
-                        <SelectItem value="manager">System Manager</SelectItem>
-                        <SelectItem value="supervisor">Department Supervisor</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -208,24 +251,25 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
+                <Label htmlFor="department">Department *</Label>
                 <div className="relative">
                   <Building className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400 z-10" />
                   <Select
                     value={formData.department}
                     onValueChange={(value) => handleInputChange('department', value)}
                     disabled={isLoading}
+                    required
                   >
                     <SelectTrigger id="department" className="pl-10">
                       <SelectValue placeholder="Select department" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="general">General Administration</SelectItem>
-                      <SelectItem value="operations">Operations</SelectItem>
-                      <SelectItem value="medical">Medical Administration</SelectItem>
-                      <SelectItem value="finance">Finance & Billing</SelectItem>
-                      <SelectItem value="hr">Human Resources</SelectItem>
-                      <SelectItem value="it">IT & Systems</SelectItem>
+                      <SelectItem value="general-medicine">General Medicine</SelectItem>
+                      <SelectItem value="pediatrics">Pediatrics</SelectItem>
+                      <SelectItem value="surgery">Surgery</SelectItem>
+                      <SelectItem value="emergency">Emergency</SelectItem>
+                      <SelectItem value="pharmacy">Pharmacy</SelectItem>
+                      <SelectItem value="administration">Administration</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -233,7 +277,7 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">Password *</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <Input
@@ -244,12 +288,13 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                       onChange={(e) => handleInputChange('password', e.target.value)}
                       className="pl-10"
                       disabled={isLoading}
+                      required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <Label htmlFor="confirmPassword">Confirm Password *</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <Input
@@ -260,16 +305,10 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                       onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                       className="pl-10"
                       disabled={isLoading}
+                      required
                     />
                   </div>
                 </div>
-              </div>
-
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
-                <p className="flex items-start gap-2">
-                  <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
-                  <span>Your registration will be reviewed by a system administrator before access is granted. You will receive an email notification once your account is approved.</span>
-                </p>
               </div>
 
               <Button 
@@ -277,7 +316,7 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                 className="w-full bg-blue-600 hover:bg-blue-700"
                 disabled={isLoading}
               >
-                {isLoading ? 'Submitting...' : 'Submit Registration'}
+                {isLoading ? 'Registering Staff...' : 'Register Staff Member'}
               </Button>
 
               <div className="relative">
@@ -285,19 +324,38 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                   <span className="w-full border-t border-gray-300" />
                 </div>
                 <div className="relative flex justify-center text-xs">
-                  <span className="bg-white px-2 text-gray-500">Already have an account?</span>
+                  <span className="bg-white px-2 text-gray-500">Quick Actions</span>
                 </div>
               </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={onNavigateToSignIn}
-                disabled={isLoading}
-              >
-                Back to Sign In
-              </Button>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleBackToDashboard}
+                  disabled={isLoading}
+                >
+                  Back to Dashboard
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setFormData({
+                      fullName: '',
+                      email: '',
+                      phone: '',
+                      role: '',
+                      department: '',
+                      password: '',
+                      confirmPassword: ''
+                    });
+                  }}
+                  disabled={isLoading}
+                >
+                  Clear Form
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>
@@ -321,19 +379,19 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
                 </div>
                 <div className="flex items-center gap-2">
                   <Mail className="size-4" />
-                  <span>support@smartcms.com</span>
+                  <span>admin@clinic.com</span>
                 </div>
               </div>
             </div>
 
             {/* Quick Links */}
             <div>
-              <h3 className="text-sm text-gray-900 mb-3">Quick Links</h3>
+              <h3 className="text-sm text-gray-900 mb-3">Admin Tools</h3>
               <ul className="space-y-2 text-sm text-gray-600">
-                <li><a href="#" className="hover:text-blue-600 transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-blue-600 transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-blue-600 transition-colors">Support Center</a></li>
-                <li><a href="#" className="hover:text-blue-600 transition-colors">System Status</a></li>
+                <li><a href="/dashboard" className="hover:text-blue-600 transition-colors">Dashboard</a></li>
+                <li><a href="/dashboard/staff" className="hover:text-blue-600 transition-colors">Manage Staff</a></li>
+                <li><a href="/dashboard/reports" className="hover:text-blue-600 transition-colors">Reports</a></li>
+                <li><a href="/dashboard/settings" className="hover:text-blue-600 transition-colors">Settings</a></li>
               </ul>
             </div>
 
@@ -341,17 +399,17 @@ export function RegisterPage({ onNavigateToSignIn }: { onNavigateToSignIn: () =>
             <div>
               <h3 className="text-sm text-gray-900 mb-3">System Information</h3>
               <p className="text-sm text-gray-600 mb-3">
-                Secure administrative access for authorized personnel only.
+                Admin staff registration portal. All actions are logged.
               </p>
               <div className="flex items-center gap-2 text-sm text-green-600">
                 <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse"></div>
-                <span>All systems operational</span>
+                <span>Secure connection established</span>
               </div>
             </div>
           </div>
 
           <div className="mt-8 pt-8 border-t border-gray-200 text-center text-sm text-gray-500">
-            <p>&copy; 2025 Smart CMS. All rights reserved.</p>
+            <p>&copy; 2025 Smart CMS - Admin Portal. Authorized access only.</p>
           </div>
         </div>
       </footer>

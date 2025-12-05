@@ -22,19 +22,20 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
         p.Name as patientName,
         p.PhoneNumber,
         p.ICNo,
-        d.Name as doctorName,
+        u.Name as doctorName,
         dp.Specialization,
         v.VisitID,
         v.VisitStatus,
         v.QueueNumber as visitQueueNumber,
         v.QueueStatus,
         v.CheckInTime,
-        v.ConsultationStartTime,
-        v.ConsultationEndTime
-      FROM Appointment a
-      JOIN Patient p ON a.PatientID = p.PatientID
-      LEFT JOIN DoctorProfile dp ON a.DoctorID = dp.DoctorID
-      LEFT JOIN UserAccount d ON dp.DoctorID = d.UserID
+        v.TriagePriority,
+        v.CalledTime,
+        v.CheckOutTime
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN doctorprofile dp ON a.DoctorID = dp.DoctorID
+      LEFT JOIN useraccount u ON a.DoctorID = u.UserID
       LEFT JOIN patient_visit v ON a.AppointmentID = v.AppointmentID 
         AND v.VisitStatus NOT IN ('cancelled', 'no-show')
       WHERE DATE(a.AppointmentDateTime) = ?
@@ -85,12 +86,13 @@ export const checkInAppointment = async (req: Request, res: Response) => {
         a.*, 
         p.Name as patientName,
         p.PatientID,
-        d.Name as doctorName,
+        u.Name as doctorName,
         a.DoctorID,
-        a.Purpose
-      FROM Appointment a
-      JOIN Patient p ON a.PatientID = p.PatientID
-      LEFT JOIN UserAccount d ON a.DoctorID = d.UserID
+        a.Purpose,
+        a.QueueNumber as appointmentQueueNumber
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON a.DoctorID = u.UserID
       WHERE a.AppointmentID = ?
         AND a.Status != 'cancelled'
     `, [appointmentId]);
@@ -120,26 +122,41 @@ export const checkInAppointment = async (req: Request, res: Response) => {
       });
     }
     
-    // Generate queue number
-    const today = new Date().toISOString().split('T')[0];
-    const [queueCount]: any = await db.query(`
-      SELECT COUNT(*) as count 
-      FROM patient_visit 
-      WHERE DATE(ArrivalTime) = ?
-    `, [today]);
+    // Generate queue number using YYMMDD format
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const dateStr = `${year}${month}${day}`;
     
-    const queueNumber = `Q-${today.replace(/-/g, '')}-${(queueCount[0].count + 1).toString().padStart(3, '0')}`;
+    // Get the MAX queue number for today that matches Q-YYMMDD-XXX pattern
+    const [maxQueue]: any = await db.query(`
+      SELECT 
+        MAX(
+          CASE 
+            WHEN QueueNumber LIKE 'Q-${dateStr}-%' 
+            THEN CAST(SUBSTRING_INDEX(QueueNumber, '-', -1) AS UNSIGNED)
+            ELSE 0
+          END
+        ) as maxNumber
+      FROM patient_visit 
+      WHERE DATE(ArrivalTime) = CURDATE()
+    `, []);
+    
+    const lastNumber = maxQueue[0].maxNumber || 0;
+    const count = lastNumber + 1;
+    const queueNumber = `Q-${dateStr}-${count.toString().padStart(3, '0')}`;
     
     // Get next queue position
     const [maxPosition]: any = await db.query(
-      'SELECT MAX(QueuePosition) as maxPos FROM patient_visit WHERE DATE(ArrivalTime) = ?',
-      [today]
+      'SELECT MAX(QueuePosition) as maxPos FROM patient_visit WHERE DATE(ArrivalTime) = CURDATE()',
+      []
     );
     const queuePosition = (maxPosition[0].maxPos || 0) + 1;
     
     // Update appointment status to 'confirmed'
     await db.query(`
-      UPDATE Appointment 
+      UPDATE appointment 
       SET Status = 'confirmed',
           UpdatedAt = NOW()
       WHERE AppointmentID = ?
@@ -149,8 +166,8 @@ export const checkInAppointment = async (req: Request, res: Response) => {
     const [visit]: any = await db.query(`
       INSERT INTO patient_visit 
       (AppointmentID, PatientID, DoctorID, VisitType, ArrivalTime, CheckInTime, 
-       VisitStatus, ReasonForVisit, QueueNumber, QueueStatus, QueuePosition)
-      VALUES (?, ?, ?, 'follow-up', NOW(), NOW(), 'checked-in', ?, ?, 'waiting', ?)
+       VisitStatus, VisitNotes, QueueNumber, QueueStatus, QueuePosition, TriagePriority)
+      VALUES (?, ?, ?, 'follow-up', NOW(), NOW(), 'checked-in', ?, ?, 'waiting', ?, 'low')
     `, [
       appointmentId,
       appointment.PatientID,
@@ -197,10 +214,10 @@ export const markAppointmentLate = async (req: Request, res: Response) => {
     
     // Update appointment status to 'no-show'
     await db.query(`
-      UPDATE Appointment 
-      SET Status = 'no-show',
+      UPDATE appointment 
+      SET Status = 'cancelled',
           UpdatedAt = NOW(),
-          Notes = CONCAT(IFNULL(Notes, ''), '\nMarked as no-show: ${reason || 'Patient did not arrive'}')
+          Notes = CONCAT(COALESCE(Notes, ''), '\nMarked as no-show: ${reason || 'Patient did not arrive'}')
       WHERE AppointmentID = ?
     `, [appointmentId]);
     
@@ -237,10 +254,10 @@ export const cancelAppointment = async (req: Request, res: Response) => {
     
     // Update appointment status
     await db.query(`
-      UPDATE Appointment 
+      UPDATE appointment 
       SET Status = 'cancelled', 
           UpdatedAt = NOW(),
-          Notes = CONCAT(IFNULL(Notes, ''), '\nCancelled by ${cancelledBy}: ${reason}')
+          Notes = CONCAT(COALESCE(Notes, ''), '\nCancelled by ${cancelledBy}: ${reason}')
       WHERE AppointmentID = ?
     `, [appointmentId]);
     
@@ -287,11 +304,11 @@ export const rescheduleAppointment = async (req: Request, res: Response) => {
     
     // Update appointment
     await db.query(`
-      UPDATE Appointment 
+      UPDATE appointment 
       SET AppointmentDateTime = ?,
-          Status = 'rescheduled',
+          Status = 'scheduled',
           UpdatedAt = NOW(),
-          Notes = CONCAT(IFNULL(Notes, ''), '\nRescheduled by ${rescheduledBy}: ${reason || ''}')
+          Notes = CONCAT(COALESCE(Notes, ''), '\nRescheduled by ${rescheduledBy}: ${reason || ''}')
       WHERE AppointmentID = ?
     `, [newDateTime, appointmentId]);
     

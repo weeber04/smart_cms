@@ -1,9 +1,15 @@
-    import express = require("express");
+import express from "express";
+import { login, logout, refreshToken, checkAuth } from "../controllers/authController";
+import { verifyToken } from "../middleware/authMiddleware";
 
-    import { login  } from "../controllers/authController";
+const router = express.Router();
 
-    const router = express.Router();
+// Public routes
+router.post("/login", login);
+router.post("/refresh", refreshToken);
+router.post("/logout", logout);
 
-    router.post("/login", login );
+// Protected route (requires authentication)
+router.get("/check", verifyToken, checkAuth);
 
-    export default router;
+export default router;

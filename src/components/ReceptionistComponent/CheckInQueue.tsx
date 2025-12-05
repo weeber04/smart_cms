@@ -1,20 +1,22 @@
 // CheckInQueue.tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { UserPlus, Phone, Mail, Calendar, Search, Users, X } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Textarea } from './ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
-import { Badge } from './ui/badge';
+import { UserPlus, Phone, Mail, Calendar, Search, Users, X, AlertTriangle, Activity, Siren, Clock } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Textarea } from '../ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Badge } from '../ui/badge';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 
 
 interface CheckInQueueProps {
   receptionistId: number | null;
   doctors: any[];
   refreshData: () => void;
+  waitingRoomList: any[];
 }
 
 interface Patient {
@@ -48,7 +50,8 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
   const searchTimeoutRef = useRef<number | null>(null);
   const [walkinFormData, setWalkinFormData] = useState({
     doctorId: '',
-    reason: ''
+    reason: '',
+    priority: 'low' // Default priority
   });
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -63,9 +66,11 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
     setCurrentPage(1);
     setWalkinFormData({
       doctorId: '',
-      reason: ''
+      reason: '',
+      priority: 'low'
     });
   };
+
   const handleSearchPatient = async () => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
@@ -123,35 +128,36 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
   }, [searchQuery]);
 
   const handleRegisterWalkIn = async () => {
-  if (!selectedPatient) {
-    setError('Please select a patient first');
-    return;
-  }
-
-  // Add more detailed check
-  if (selectedPatient.queueInfo) {
-    const status = selectedPatient.queueInfo.queueStatus?.toLowerCase();
-    if (status && ['waiting', 'in-progress', 'checked-in'].includes(status)) {
-      setError(`This patient is currently "${selectedPatient.queueInfo.queueStatus}" and cannot be added again`);
+    if (!selectedPatient) {
+      setError('Please select a patient first');
       return;
     }
-  }
 
-  if (!walkinFormData.reason.trim()) {
-    setError('Please enter reason for visit');
-    return;
-  }
+    // Add more detailed check
+    if (selectedPatient.queueInfo) {
+      const status = selectedPatient.queueInfo.queueStatus?.toLowerCase();
+      if (status && ['waiting', 'in-progress', 'checked-in'].includes(status)) {
+        setError(`This patient is currently "${selectedPatient.queueInfo.queueStatus}" and cannot be added again`);
+        return;
+      }
+    }
 
-  if (!receptionistId) {
-    setError('Receptionist ID is missing');
-    return;
-  }
+    if (!walkinFormData.reason.trim()) {
+      setError('Please enter reason for visit');
+      return;
+    }
+
+    if (!receptionistId) {
+      setError('Receptionist ID is missing');
+      return;
+    }
 
     try {
       console.log('Registering walk-in:', {
         patientId: selectedPatient.id,
         doctorId: walkinFormData.doctorId,
         reason: walkinFormData.reason,
+        priority: walkinFormData.priority,
         receptionistId
       });
 
@@ -162,6 +168,7 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
           patientId: selectedPatient.id,
           doctorId: walkinFormData.doctorId || null,
           reason: walkinFormData.reason,
+          priority: walkinFormData.priority,
           receptionistId: receptionistId
         })
       });
@@ -171,7 +178,7 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
 
       if (response.ok && result.success) {
         setDialogTitle("Walk-in Registered");
-        setDialogMessage(`Queue Number: ${result.queueNumber}`);
+        setDialogMessage(`Queue Number: ${result.queueNumber}\nPriority: ${walkinFormData.priority.toUpperCase()}\n${walkinFormData.doctorId ? `Doctor Assigned: Yes` : 'No doctor assigned'}`);
         setDialogOpen(true);
 
         resetWalkInForm();
@@ -182,19 +189,13 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
         setDialogMessage(result.error || "Failed to register walk-in");
         setDialogOpen(true);
       }
+    } catch (error) {
+      console.error("Walk-in registration error:", error);
+      setDialogTitle("Error");
+      setDialogMessage("Failed to register walk-in. Please check console for details.");
+      setDialogOpen(true);
     }
-      catch (error) {
-        console.error("Walk-in registration error:", error);
-
-        setDialogTitle("Error");
-        setDialogMessage("Failed to register walk-in. Please check console for details.");
-        setDialogOpen(true);
-      }
-
-
   };
-
-
 
   // Pagination handlers
   const handlePrevPage = useCallback(() => {
@@ -212,6 +213,41 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
       setCurrentPage(currentPage + 1);
     }
   }, [currentPage, searchResults.length]);
+
+  // Get priority badge component
+  const getPriorityBadge = (priority: string) => {
+    switch (priority) {
+      case 'critical':
+        return (
+          <Badge className="bg-red-100 text-red-800 border-red-200 text-xs">
+            <Siren className="size-3 mr-1" />
+            Critical
+          </Badge>
+        );
+      case 'high':
+        return (
+          <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs">
+            <AlertTriangle className="size-3 mr-1" />
+            High
+          </Badge>
+        );
+      case 'medium':
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs">
+            <Activity className="size-3 mr-1" />
+            Medium
+          </Badge>
+        );
+      case 'low':
+        return (
+          <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">
+            Low
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
 
   // Search Results Component
   const PatientSearchResults = () => {
@@ -628,6 +664,79 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
                   />
                 </div>
 
+                <div className="space-y-2">
+                  <Label>Triage Priority *</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={walkinFormData.priority === 'critical' ? 'destructive' : 'outline'}
+                      onClick={() => setWalkinFormData({...walkinFormData, priority: 'critical'})}
+                      className="justify-start"
+                    >
+                      <Siren className="size-4 mr-2" />
+                      Critical
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={walkinFormData.priority === 'high' ? 'default' : 'outline'}
+                      className={`justify-start ${walkinFormData.priority === 'high' ? 'bg-orange-600 hover:bg-orange-700' : ''}`}
+                      onClick={() => setWalkinFormData({...walkinFormData, priority: 'high'})}
+                    >
+                      <AlertTriangle className="size-4 mr-2" />
+                      High
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={walkinFormData.priority === 'medium' ? 'default' : 'outline'}
+                      className={`justify-start ${walkinFormData.priority === 'medium' ? 'bg-yellow-600 hover:bg-yellow-700' : ''}`}
+                      onClick={() => setWalkinFormData({...walkinFormData, priority: 'medium'})}
+                    >
+                      <Activity className="size-4 mr-2" />
+                      Medium
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={walkinFormData.priority === 'low' ? 'default' : 'outline'}
+                      className={`justify-start ${walkinFormData.priority === 'low' ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                      onClick={() => setWalkinFormData({...walkinFormData, priority: 'low'})}
+                    >
+                      <Clock className="size-4 mr-2" />
+                      Low (Default)
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="text-xs text-gray-500">
+                      Selected: {getPriorityBadge(walkinFormData.priority)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="doctor-assignment">Assign Doctor (Optional)</Label>
+                  <Select
+                    value={walkinFormData.doctorId === '' ? "none" : walkinFormData.doctorId}
+                    onValueChange={(value) => setWalkinFormData({
+                      ...walkinFormData, 
+                      doctorId: value === "none" ? "" : value
+                    })}
+                  >
+                    <SelectTrigger id="doctor-assignment">
+                      <SelectValue placeholder="Select a doctor (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No specific doctor</SelectItem> {/* Changed here */}
+                      {doctors.map((doctor) => (
+                        <SelectItem key={doctor.id} value={doctor.id.toString()}>
+                          Dr. {doctor.Name} - {doctor.Specialization || 'General Medicine'} ({doctor.ClinicRoom || 'No room'})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    If no doctor is selected, any available doctor can see this patient
+                  </p>
+                </div>
+
                 <div className="flex gap-3 pt-4">
                   <Button 
                     className="flex-1 bg-orange-600 hover:bg-orange-700"
@@ -711,20 +820,20 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
           </div>
         </DialogContent>
       </Dialog>
+      
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
           </DialogHeader>
 
-          <p className="text-sm text-gray-700 mt-2">{dialogMessage}</p>
+          <p className="text-sm text-gray-700 mt-2 whitespace-pre-line">{dialogMessage}</p>
 
           <DialogFooter className="mt-4">
             <Button onClick={() => setDialogOpen(false)}>OK</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

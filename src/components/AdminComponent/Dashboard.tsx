@@ -1,19 +1,30 @@
 import { useState } from 'react';
-import { Activity, Users, Calendar, DollarSign, UserPlus, Settings, LogOut, BarChart3, Menu, Bell, Search, TrendingUp, Clock, AlertCircle } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Avatar, AvatarFallback } from './ui/avatar';
-import { Badge } from './ui/badge';
+import { useAuth } from '../../contexts/AuthContext';
+import { Activity, Users, Calendar, DollarSign, UserPlus, Settings, LogOut, BarChart3, Menu, Bell, Search, TrendingUp, Clock } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Avatar, AvatarFallback } from '../ui/avatar';
+import { Badge } from '../ui/badge';
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '../ui/dialog';
 import { RegisterUserSection } from './RegisterUserSection';
 import { ManageUserSection } from './ManageUserSection';
 import { AnalyticsSection } from './AnalyticsSection';
 
 type Section = 'overview' | 'register' | 'manage' | 'analytics';
 
-export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
+export function Dashboard() {
   const [activeSection, setActiveSection] = useState<Section>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false); // Add this state
+  
+  const { user, logout } = useAuth();
 
   const stats = [
     {
@@ -68,6 +79,11 @@ export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
     { id: 'analytics' as Section, label: 'Analytics', icon: TrendingUp }
   ];
 
+  const handleSignOut = () => {
+    setShowLogoutConfirm(false);
+    logout();
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
@@ -116,7 +132,7 @@ export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
             {sidebarOpen && <span className="text-sm">Collapse</span>}
           </button>
           <button
-            onClick={onSignOut}
+            onClick={() => setShowLogoutConfirm(true)} // Show confirmation dialog
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
           >
             <LogOut className="size-5 flex-shrink-0" />
@@ -150,8 +166,8 @@ export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
                   <AvatarFallback className="bg-blue-600 text-white">AD</AvatarFallback>
                 </Avatar>
                 <div className="hidden sm:block">
-                  <p className="text-sm text-gray-900">Admin User</p>
-                  <p className="text-xs text-gray-500">admin@clinic.com</p>
+                  <p className="text-sm text-gray-900">{user?.name || 'Admin User'}</p>
+                  <p className="text-xs text-gray-500">{user?.email || 'admin@clinic.com'}</p>
                 </div>
               </div>
             </div>
@@ -296,6 +312,33 @@ export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
           {activeSection === 'analytics' && <AnalyticsSection />}
         </main>
       </div>
+
+      {/* Logout Confirmation Dialog */}
+      <Dialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Log Out</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to log out of the Admin Portal?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 justify-end">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowLogoutConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleSignOut}
+            >
+              <LogOut className="size-4 mr-2" />
+              Log Out
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

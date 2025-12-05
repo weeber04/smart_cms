@@ -1,18 +1,28 @@
-// WaitingList.tsx - MODIFIED VERSION with 2-column grid and pagination
-import { Users, Clock, User, Calendar, Phone, X, CheckCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Input } from './ui/input';
+// WaitingList.tsx - MODIFIED VERSION with TriagePriority and CalledTime support
+import { Users, Clock, User, Calendar, Phone, X, CheckCircle, Search, ChevronLeft, ChevronRight, AlertTriangle, Siren, Bell, Activity } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Input } from '../ui/input';
 import { useState, useMemo } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 
+// Change from this:
 interface WaitingListProps {
   waitingRoomList: any[];
   refreshData: () => void;
 }
+
+// To this:
+interface WaitingListProps {
+  waitingRoomList: any[];
+  refreshData: () => void; // Keep this if needed for other components
+}
+
+// Define type for triage priority
+type TriagePriority = 'critical' | 'high' | 'medium' | 'low' | string;
 
 export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,11 +58,41 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
     (!visit.QueueStatus && visit.VisitStatus && ['completed', 'cancelled'].includes(visit.VisitStatus))
   );
 
+  // Helper function to get priority order value
+  const getPriorityOrder = (priority: TriagePriority): number => {
+    const priorityOrder: Record<string, number> = {
+      'critical': 1,
+      'high': 2,
+      'medium': 3,
+      'low': 4
+    };
+    return priorityOrder[priority?.toLowerCase()] || 5;
+  };
+
+  // Sort active visits by TriagePriority and QueuePosition
+  const sortedActiveVisits = useMemo(() => {
+    return [...activeVisits].sort((a, b) => {
+      // First sort by triage priority
+      const aPriority = getPriorityOrder(a.TriagePriority);
+      const bPriority = getPriorityOrder(b.TriagePriority);
+      
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
+      }
+      
+      // Then sort by queue position
+      const aPos = a.QueuePosition || 999;
+      const bPos = b.QueuePosition || 999;
+      
+      return aPos - bPos;
+    });
+  }, [activeVisits]);
+
   // Calculate pagination for active visits
-  const activeTotalPages = Math.ceil(activeVisits.length / itemsPerPage);
+  const activeTotalPages = Math.ceil(sortedActiveVisits.length / itemsPerPage);
   const activeStartIndex = (activePage - 1) * itemsPerPage;
   const activeEndIndex = activeStartIndex + itemsPerPage;
-  const currentActiveVisits = activeVisits.slice(activeStartIndex, activeEndIndex);
+  const currentActiveVisits = sortedActiveVisits.slice(activeStartIndex, activeEndIndex);
 
   // Calculate pagination for completed visits
   const completedTotalPages = Math.ceil(completedVisits.length / itemsPerPage);
@@ -137,6 +177,54 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
     return `${hours}h ${minutes}m`;
   };
 
+  const formatCalledTime = (calledTime: string) => {
+    if (!calledTime) return 'Not called yet';
+    
+    const called = new Date(calledTime);
+    return called.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  };
+
+  const getTriageBadge = (priority: TriagePriority) => {
+    const baseClasses = "text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1 w-fit";
+    const priorityLower = priority?.toLowerCase() || '';
+    
+    switch (priorityLower) {
+      case 'critical':
+        return (
+          <div className={`${baseClasses} bg-red-100 text-red-800 border border-red-200`}>
+            <Siren className="size-3" />
+            Critical
+          </div>
+        );
+      case 'high':
+        return (
+          <div className={`${baseClasses} bg-orange-100 text-orange-800 border border-orange-200`}>
+            <AlertTriangle className="size-3" />
+            High
+          </div>
+        );
+      case 'medium':
+        return (
+          <div className={`${baseClasses} bg-yellow-100 text-yellow-800 border border-yellow-200`}>
+            <Activity className="size-3" />
+            Medium
+          </div>
+        );
+      case 'low':
+        return (
+          <div className={`${baseClasses} bg-green-100 text-green-800 border border-green-200`}>
+            Normal
+          </div>
+        );
+      default:
+        return (
+          <div className={`${baseClasses} bg-gray-100 text-gray-800 border border-gray-200`}>
+            {priority || 'Not set'}
+          </div>
+        );
+    }
+  };
+
   const getStatusBadge = (visit: any) => {
     const baseClasses = "text-xs font-medium";
     
@@ -184,6 +272,51 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
     }
   };
 
+  // Helper function for conditional styling
+  const getCardClasses = (priority: TriagePriority) => {
+    const priorityLower = priority?.toLowerCase() || '';
+    
+    const baseClasses = "p-4 border rounded-lg hover:border-gray-300 transition-colors h-full";
+    
+    if (priorityLower === 'critical') {
+      return `${baseClasses} border-red-200 bg-red-50/30 hover:bg-red-50/50`;
+    } else if (priorityLower === 'high') {
+      return `${baseClasses} border-orange-200 bg-orange-50/30 hover:bg-orange-50/50`;
+    } else {
+      return `${baseClasses} border-gray-200 hover:border-gray-300`;
+    }
+  };
+
+  const getQueueNumberClasses = (priority: TriagePriority) => {
+    const priorityLower = priority?.toLowerCase() || '';
+    
+    const baseClasses = "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm";
+    
+    if (priorityLower === 'critical') {
+      return `${baseClasses} bg-red-100 text-red-600`;
+    } else if (priorityLower === 'high') {
+      return `${baseClasses} bg-orange-100 text-orange-600`;
+    } else {
+      return `${baseClasses} bg-orange-100 text-orange-600`;
+    }
+  };
+
+  const getPriorityBadgeClasses = (priority: TriagePriority) => {
+    const priorityLower = priority?.toLowerCase() || '';
+    
+    const baseClasses = "text-xs px-1.5 py-0.5 rounded-full";
+    
+    if (priorityLower === 'critical') {
+      return `${baseClasses} bg-red-100 text-red-700`;
+    } else if (priorityLower === 'high') {
+      return `${baseClasses} bg-orange-100 text-orange-700`;
+    } else if (priorityLower === 'medium') {
+      return `${baseClasses} bg-yellow-100 text-yellow-700`;
+    } else {
+      return `${baseClasses} bg-gray-100 text-gray-700`;
+    }
+  };
+
   return (
     <>
       <Card>
@@ -193,7 +326,7 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
               <div>
                 <CardTitle>Today's Waiting List</CardTitle>
                 <CardDescription className="mt-1">
-                  {activeVisits.length} patient(s) in queue • {completedVisits.length} completed/cancelled
+                  {sortedActiveVisits.length} patient(s) in queue • {completedVisits.length} completed/cancelled
                 </CardDescription>
               </div>
               <Button 
@@ -245,13 +378,13 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                 <h3 className="text-sm font-semibold text-gray-900">Active Queue</h3>
                 {searchQuery && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Found {activeVisits.length} active patient(s) matching "{searchQuery}"
+                    Found {sortedActiveVisits.length} active patient(s) matching "{searchQuery}"
                   </p>
                 )}
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-xs text-gray-500">
-                  Next: {activeVisits[0]?.QueueNumber || 'None'}
+                  Next: {sortedActiveVisits[0]?.QueueNumber || 'None'}
                 </span>
                 {activeTotalPages > 1 && (
                   <span className="text-xs text-gray-500">
@@ -261,7 +394,7 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
               </div>
             </div>
             
-            {activeVisits.length === 0 && searchQuery && (
+            {sortedActiveVisits.length === 0 && searchQuery && (
               <div className="text-center py-8 text-gray-500 border border-dashed border-gray-200 rounded-lg">
                 <Search className="size-12 mx-auto mb-3 text-gray-300" />
                 <p>No active patients found matching "{searchQuery}"</p>
@@ -272,17 +405,26 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
             {/* 2-column grid for active visits */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {currentActiveVisits.map((visit) => (
-                <div key={visit.VisitID} className="p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors h-full">
+                <div 
+                  key={visit.VisitID} 
+                  className={getCardClasses(visit.TriagePriority)}
+                >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
+                      {/* Queue Number & Patient Name Row */}
                       <div className="flex items-center gap-3 mb-2">
-                        <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                          <span className="text-sm font-bold text-orange-600">
+                        <div className={getQueueNumberClasses(visit.TriagePriority)}>
+                          <span>
                             {visit.QueueNumber?.split('-').pop() || 'N/A'}
                           </span>
                         </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{visit.patientName}</p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium text-gray-900 truncate">{visit.patientName}</p>
+                            <div className="flex-shrink-0">
+                              {getTriageBadge(visit.TriagePriority)}
+                            </div>
+                          </div>
                           <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
                             <span className="flex items-center gap-1">
                               <Clock className="size-3 flex-shrink-0" />
@@ -297,8 +439,16 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                         </div>
                       </div>
                       
-                      {visit.ReasonForVisit && (
-                        <p className="text-sm text-gray-600 mt-2 line-clamp-2">{visit.ReasonForVisit}</p>
+                      {/* Called Time Display - Only show if not "waiting" */}
+                      {(visit.QueueStatus !== 'waiting' && visit.VisitStatus !== 'waiting') && visit.CalledTime && (
+                        <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit mb-2">
+                          <Bell className="size-3" />
+                          <span>Called at: {formatCalledTime(visit.CalledTime)}</span>
+                        </div>
+                      )}
+                      
+                      {visit.VisitNotes && (
+                        <p className="text-sm text-gray-600 mt-2 line-clamp-2">{visit.VisitNotes}</p>
                       )}
                       
                       <div className="flex flex-wrap gap-2 mt-3 text-xs text-gray-500">
@@ -320,20 +470,22 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                             {new Date(visit.ArrivalTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                           </span>
                         )}
+
                       </div>
                     </div>
                     
                     <div className="flex flex-col items-end gap-2 ml-2">
                       {getStatusBadge(visit)}
-                      <span className="text-xs text-gray-400">
-                        #{visit.VisitID}
+                      {/* With this: */}
+                      <span className="truncate text-gray-400">
+                        Queue: {visit.QueueNumber?.split('-').pop() || 'N/A'}
                       </span>
                     </div>
                   </div>
                   
                   {/* Receptionist Actions */}
                   <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
-                    {(visit.QueueStatus === 'waiting' || visit.VisitStatus === 'checked-in') && (
+                    {(visit.QueueStatus === 'waiting' || visit.VisitStatus === 'checked-in' || visit.VisitStatus === 'waiting') && (
                       <>
                         <Button 
                           size="sm" 
@@ -356,8 +508,9 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                     )}
                     
                     {(visit.QueueStatus === 'in-progress' || visit.VisitStatus === 'in-consultation') && (
-                      <div className="text-center w-full text-sm text-gray-500">
-                        Patient with doctor
+                      <div className="text-center w-full text-sm text-gray-500 flex items-center justify-center gap-2">
+                        <User className="size-4" />
+                        <span>Patient with doctor</span>
                       </div>
                     )}
                   </div>
@@ -365,7 +518,7 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
               ))}
             </div>
             
-            {activeVisits.length === 0 && !searchQuery && (
+            {sortedActiveVisits.length === 0 && !searchQuery && (
               <div className="text-center py-8 text-gray-500 border border-dashed border-gray-200 rounded-lg">
                 <Users className="size-12 mx-auto mb-3 text-gray-300" />
                 <p>No patients in active queue</p>
@@ -377,8 +530,8 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
             {activeTotalPages > 1 && (
               <div className="flex items-center justify-between pt-4 border-t">
                 <div className="text-sm text-gray-700">
-                  Showing {Math.min(activeVisits.length, activeStartIndex + 1)}-
-                  {Math.min(activeVisits.length, activeEndIndex)} of {activeVisits.length} active patients
+                  Showing {Math.min(sortedActiveVisits.length, activeStartIndex + 1)}-
+                  {Math.min(sortedActiveVisits.length, activeEndIndex)} of {sortedActiveVisits.length} active patients
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -410,6 +563,34 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
             )}
           </div>
           
+          {/* Triage Priority Legend */}
+          {sortedActiveVisits.some(v => v.TriagePriority && v.TriagePriority.toLowerCase() !== 'low') && (
+            <div className="mb-6 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="size-4 text-gray-600" />
+                <span className="text-sm font-medium text-gray-700">Triage Priority Legend</span>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                  <span className="text-gray-600">Critical - Highest priority</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                  <span className="text-gray-600">High - Urgent attention needed</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                  <span className="text-gray-600">Medium - Standard priority</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-gray-600">Low - Routine/Routine</span>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Completed/Cancelled Section (Collapsible) */}
           {completedVisits.length > 0 && (
             <div className="border-t pt-6">
@@ -425,13 +606,25 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                       <div key={visit.VisitID} className="p-3 border border-gray-200 rounded-lg bg-gray-50">
                         <div className="flex justify-between items-start gap-3">
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{visit.patientName}</p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="text-sm font-medium text-gray-900 truncate">{visit.patientName}</p>
+                              {visit.TriagePriority && visit.TriagePriority.toLowerCase() !== 'low' && (
+                                <span className={getPriorityBadgeClasses(visit.TriagePriority)}>
+                                  {visit.TriagePriority}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
                               <span className="truncate">{visit.QueueNumber}</span>
                               <span>•</span>
                               <span>{formatWaitTime(visit.ArrivalTime)}</span>
                               <span>•</span>
-                              <span className="truncate">#{visit.VisitID}</span>
+                              {visit.CalledTime && (
+                                <>
+                                  <span>Called: {formatCalledTime(visit.CalledTime)}</span>
+                                  <span>•</span>
+                                </>
+                              )}
                             </div>
                           </div>
                           <div className="flex-shrink-0">

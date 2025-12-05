@@ -5,25 +5,25 @@ import {
   CardDescription, 
   CardHeader, 
   CardTitle 
-} from './ui/card';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Button } from './ui/button';
+} from '../ui/card';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Button } from '../ui/button';
 import { 
   Select, 
   SelectContent, 
   SelectItem, 
   SelectTrigger, 
   SelectValue 
-} from './ui/select';
-import { Alert, AlertDescription } from './ui/alert';
+} from '../ui/select';
+import { Alert, AlertDescription } from '../ui/alert';
 import { 
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription
-} from './ui/dialog';
+} from '../ui/dialog';
 import { 
   UserPlus, 
   Mail, 

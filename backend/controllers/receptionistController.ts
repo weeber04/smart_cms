@@ -2,7 +2,6 @@
 import { Request, Response } from "express";
 import { db } from "../db";
 
-
 // ============ PATIENT MANAGEMENT ============
 export const registerPatient = async (req: Request, res: Response) => {
   try {
@@ -93,36 +92,56 @@ export const registerPatient = async (req: Request, res: Response) => {
     const patientId = patient.insertId;
     console.log(`Patient inserted with ID: ${patientId}`);
     
-    // Create visit record - FIXED: patient_visit table doesn't exist!
-    // Check what table you actually have for visits
-    try {
-      // Try to insert into waitingroom table (based on your schema)
-      if (doctorId) {
-        // First create an appointment
-        const [appointment]: any = await db.query(`
-          INSERT INTO Appointment 
-          (AppointmentDateTime, Purpose, Status, PatientID, DoctorID, CreatedBy, Priority)
-          VALUES (NOW(), ?, 'scheduled', ?, ?, ?, 'normal')
-        `, [reasonForVisit || 'First consultation', patientId, doctorId, createdBy]);
-        
-        // Then create waiting room entry
-        await db.query(`
-          INSERT INTO WaitingRoom 
-          (AppointmentID, CheckInTime, Status, Priority)
-          VALUES (?, NOW(), 'waiting', 'normal')
-        `, [appointment.insertId]);
-      }
+    // If there's a doctor and reason for visit, create an appointment and visit
+    if (doctorId && reasonForVisit) {
+      // Create an appointment first
+      const [appointment]: any = await db.query(`
+        INSERT INTO appointment 
+        (AppointmentDateTime, Purpose, Status, PatientID, DoctorID, CreatedBy, QueueNumber)
+        VALUES (NOW(), ?, 'scheduled', ?, ?, ?, ?)
+      `, [reasonForVisit, patientId, doctorId, createdBy, 'TEMP']);
       
-      // OR create a walk-in record
-      const [walkIn]: any = await db.query(`
-        INSERT INTO WalkInPatient 
-        (PatientName, PhoneNumber, ReasonForVisit, ArrivalTime, Status, CreatedBy)
-        VALUES (?, ?, ?, NOW(), 'waiting', ?)
-      `, [name, phoneNumber, reasonForVisit || 'First consultation', createdBy]);
+      const appointmentId = appointment.insertId;
       
-    } catch (visitError) {
-      console.log("Visit record creation skipped:", visitError.message);
-      // Don't fail the whole registration if visit record fails
+      // Generate proper queue number
+      const now = new Date();
+      const year = now.getFullYear().toString().slice(-2);
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const day = now.getDate().toString().padStart(2, '0');
+      const dateStr = `${year}${month}${day}`;
+      
+      // Get max appointment number for today
+      const [maxAppointment]: any = await db.query(`
+        SELECT 
+          CASE 
+            WHEN QueueNumber LIKE 'Q-${dateStr}-%' 
+            THEN MAX(CAST(SUBSTRING_INDEX(QueueNumber, '-', -1) AS UNSIGNED))
+            ELSE 0
+          END as maxNumber
+        FROM appointment 
+        WHERE DATE(AppointmentDateTime) = CURDATE()
+      `, []);
+      
+      const lastNumber = maxAppointment[0].maxNumber || 0;
+      const count = lastNumber + 1;
+      const queueNumber = `Q-${dateStr}-${count.toString().padStart(3, '0')}`;
+      
+      // Update appointment with correct queue number
+      await db.query(`
+        UPDATE appointment 
+        SET QueueNumber = ?
+        WHERE AppointmentID = ?
+      `, [queueNumber, appointmentId]);
+      
+      // Create patient visit
+      const [visit]: any = await db.query(`
+        INSERT INTO patient_visit 
+        (AppointmentID, PatientID, DoctorID, VisitType, ArrivalTime, 
+         CheckInTime, VisitStatus, QueueStatus, QueueNumber, QueuePosition, TriagePriority)
+        VALUES (?, ?, ?, 'first-time', NOW(), NOW(), 'checked-in', 'waiting', ?, 1, 'low')
+      `, [appointmentId, patientId, doctorId, queueNumber]);
+      
+      console.log(`Created appointment ${appointmentId} and visit ${visit.insertId} for new patient`);
     }
     
     await db.query("COMMIT");
@@ -169,7 +188,7 @@ export const registerPatient = async (req: Request, res: Response) => {
 
 // In your receptionist controller (receptionistController.js)
 export const registerWalkIn = async (req: Request, res: Response) => {
-  const { patientId, doctorId, reason, receptionistId } = req.body;
+  const { patientId, doctorId, reason, receptionistId, priority  } = req.body;
 
   try {
     if (!patientId || !reason || !receptionistId) {
@@ -198,7 +217,8 @@ export const registerWalkIn = async (req: Request, res: Response) => {
       SELECT VisitID FROM patient_visit 
       WHERE PatientID = ? 
         AND DATE(ArrivalTime) = ?
-        AND QueueStatus IN ('waiting', 'in-progress', 'checked-in')
+        AND QueueStatus IN ('waiting', 'in-progress')
+        AND VisitStatus IN ('checked-in', 'in-consultation', 'waiting-for-results', 'ready-for-checkout')
     `, [patientId, today]);
 
     if (activeVisits.length > 0) {
@@ -223,7 +243,7 @@ export const registerWalkIn = async (req: Request, res: Response) => {
       }
     }
 
-    // FIXED: Get date in local timezone (YYMMDD format)
+    // Get date in local timezone (YYMMDD format)
     const now = new Date();
     const year = now.getFullYear().toString().slice(-2); // Last 2 digits
     const month = (now.getMonth() + 1).toString().padStart(2, '0'); // Month is 0-indexed
@@ -238,19 +258,16 @@ export const registerWalkIn = async (req: Request, res: Response) => {
       dateStr
     });
 
-    // Get the MAX queue number for today that matches Q-YYMMDD-XXX pattern
-    const [maxQueue]: any = await db.query(`
-      SELECT 
-        CASE 
-          WHEN QueueNumber LIKE 'Q-${dateStr}-%' 
-          THEN MAX(CAST(SUBSTRING_INDEX(QueueNumber, '-', -1) AS UNSIGNED))
-          ELSE 0
-        END as maxNumber
+    // Get the MAX queue number for today that matches Q-YYMMDD-XXX pattern from patient_visit
+    // Just get the maximum number from today's visits
+    const [maxNumberResult]: any = await db.query(`
+      SELECT MAX(CAST(SUBSTRING_INDEX(QueueNumber, '-', -1) AS UNSIGNED)) as maxNumber
       FROM patient_visit 
-      WHERE DATE(ArrivalTime) = ?
-    `, [today]);
+      WHERE DATE(ArrivalTime) = CURDATE()
+      AND QueueNumber LIKE 'Q-${dateStr}-%'
+    `, []);
 
-    const lastNumber = maxQueue[0].maxNumber || 0;
+    const lastNumber = maxNumberResult[0].maxNumber || 0;
     const count = lastNumber + 1;
     const queueNumber = `Q-${dateStr}-${count.toString().padStart(3, '0')}`;
 
@@ -263,38 +280,40 @@ export const registerWalkIn = async (req: Request, res: Response) => {
     
     // Get next queue position
     const [maxPosition]: any = await db.query(
-      'SELECT MAX(QueuePosition) as maxPos FROM patient_visit WHERE DATE(ArrivalTime) = ?',
-      [today]
+      'SELECT MAX(QueuePosition) as maxPos FROM patient_visit WHERE DATE(ArrivalTime) = CURDATE()',
+      []
     );
     const queuePosition = (maxPosition[0].maxPos || 0) + 1;
 
     console.log('Queue position:', queuePosition);
 
-    // Insert into patient_visit
-    const [result]: any = await db.query(
-      `INSERT INTO patient_visit (
-        PatientID, 
-        DoctorID, 
-        VisitType, 
-        ArrivalTime, 
-        CheckInTime,
-        VisitStatus, 
-        QueueStatus,
-        ReasonForVisit, 
-        QueueNumber,
-        QueuePosition
-      ) VALUES (?, ?, ?, NOW(), NOW(), ?, ?, ?, ?, ?)`,
-      [
-        patientId,
-        doctorId || null,
-        'walk-in',
-        'checked-in',  // VisitStatus
-        'waiting',     // QueueStatus
-        reason,
-        queueNumber,
-        queuePosition
-      ]
-    );
+    // Insert into patient_visit (CORRECTED: No ReasonForVisit column, use VisitNotes)
+    // In your receptionistController.ts - registerWalkIn function
+// Add priority parameter to the SQL query:
+// CORRECTED VERSION:
+const [result]: any = await db.query(
+  `INSERT INTO patient_visit (
+    PatientID, 
+    DoctorID, 
+    VisitType, 
+    ArrivalTime, 
+    CheckInTime,
+    VisitStatus, 
+    QueueStatus,
+    VisitNotes, 
+    QueueNumber,
+    QueuePosition,
+    TriagePriority
+  ) VALUES (?, ?, 'walk-in', NOW(), NOW(), 'checked-in', 'waiting', ?, ?, ?, ?)`,  // Fixed: removed extra parameters
+  [
+    patientId,
+    doctorId || null,
+    reason,           // This is VisitNotes
+    queueNumber,
+    queuePosition,
+    priority || 'low'  // This is TriagePriority
+  ]
+);
 
     // Also create an appointment record for the walk-in
     if (doctorId) {
@@ -326,11 +345,12 @@ export const registerWalkIn = async (req: Request, res: Response) => {
       queuePosition: queuePosition
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Walk-in registration error:', error);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to register walk-in patient' 
+      error: 'Failed to register walk-in patient',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -456,14 +476,19 @@ export const searchPatient = async (req: Request, res: Response) => {
           console.log('ArrivalTime:', visit.ArrivalTime);
         }
         
-        // Determine if active
+        // Determine if active - FIXED: Use both VisitStatus and QueueStatus
         let hasActiveVisit = false;
-        if (visit && visit.QueueStatus) {
-          const queueStatus = visit.QueueStatus.trim().toLowerCase();
-          console.log('QueueStatus (trimmed, lower):', queueStatus);
+        if (visit) {
+          const queueStatus = visit.QueueStatus ? visit.QueueStatus.trim().toLowerCase() : '';
+          const visitStatus = visit.VisitStatus ? visit.VisitStatus.trim().toLowerCase() : '';
           
-          const activeStatuses = ['waiting', 'in-progress', 'checked-in'];
-          hasActiveVisit = activeStatuses.includes(queueStatus);
+          console.log('QueueStatus (trimmed, lower):', queueStatus);
+          console.log('VisitStatus (trimmed, lower):', visitStatus);
+          
+          // Active if not completed, cancelled, or no-show
+          const completedStatuses = ['completed', 'cancelled', 'no-show'];
+          hasActiveVisit = !completedStatuses.includes(queueStatus) && 
+                          !completedStatuses.includes(visitStatus);
           console.log('Is active status?', hasActiveVisit);
         }
         
@@ -510,7 +535,7 @@ export const getPatientDetails = async (req: Request, res: Response) => {
         COUNT(DISTINCT pv.VisitID) as totalVisits,
         DATE_FORMAT(MAX(pv.ArrivalTime), '%Y-%m-%d') as lastVisitDate
       FROM Patient p
-      LEFT JOIN Appointment a ON p.PatientID = a.PatientID
+      LEFT JOIN appointment a ON p.PatientID = a.PatientID
       LEFT JOIN patient_visit pv ON p.PatientID = pv.PatientID
       WHERE p.PatientID = ?
       GROUP BY p.PatientID
@@ -562,19 +587,33 @@ export const scheduleAppointment = async (req: Request, res: Response) => {
       });
     }
     
-    // Generate queue number
-    const appointmentDate = new Date(appointmentDateTime).toISOString().split('T')[0];
-    const [doctorQueue]: any = await db.query(`
-      SELECT COUNT(*) as count 
-      FROM Appointment 
-      WHERE DoctorID = ? AND DATE(AppointmentDateTime) = ?
-    `, [doctorId, appointmentDate]);
+    // Generate queue number using YYMMDD format
+    const now = new Date(appointmentDateTime);
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const dateStr = `${year}${month}${day}`;
     
-    const queueNumber = `Q${(doctorQueue[0].count + 1).toString().padStart(3, '0')}`;
+    // Get max appointment number for that date
+    const appointmentDate = new Date(appointmentDateTime).toISOString().split('T')[0];
+    const [maxAppointment]: any = await db.query(`
+      SELECT 
+        CASE 
+          WHEN QueueNumber LIKE 'Q-${dateStr}-%' 
+          THEN MAX(CAST(SUBSTRING_INDEX(QueueNumber, '-', -1) AS UNSIGNED))
+          ELSE 0
+        END as maxNumber
+      FROM appointment 
+      WHERE DATE(AppointmentDateTime) = ?
+    `, [appointmentDate]);
+    
+    const lastNumber = maxAppointment[0].maxNumber || 0;
+    const count = lastNumber + 1;
+    const queueNumber = `Q-${dateStr}-${count.toString().padStart(3, '0')}`;
     
     // Insert appointment
     const [appointment]: any = await db.query(`
-      INSERT INTO Appointment 
+      INSERT INTO appointment 
       (AppointmentDateTime, Purpose, Status, PatientID, DoctorID, 
        CreatedBy, QueueNumber, Notes)
       VALUES (?, ?, 'scheduled', ?, ?, ?, ?, ?)
@@ -588,12 +627,22 @@ export const scheduleAppointment = async (req: Request, res: Response) => {
       notes || ''
     ]);
     
+    const appointmentId = appointment.insertId;
+    
+    // Also create a patient_visit record for the appointment
+    await db.query(`
+      INSERT INTO patient_visit 
+      (AppointmentID, PatientID, DoctorID, VisitType, 
+       VisitStatus, QueueStatus, QueueNumber, TriagePriority)
+      VALUES (?, ?, ?, 'follow-up', 'scheduled', 'waiting', ?, 'low')
+    `, [appointmentId, patientId, doctorId, queueNumber]);
+    
     await db.query("COMMIT");
     
     res.json({ 
       success: true,
       message: "Appointment scheduled successfully",
-      appointmentId: appointment.insertId,
+      appointmentId,
       queueNumber,
       patientName: patient[0].Name
     });
@@ -623,11 +672,13 @@ export const getAppointments = async (req: Request, res: Response) => {
         a.QueueNumber,
         a.Notes,
         DATE_FORMAT(a.AppointmentDateTime, '%Y-%m-%d') as date,
-        DATE_FORMAT(a.AppointmentDateTime, '%h:%i %p') as time
-      FROM Appointment a
+        DATE_FORMAT(a.AppointmentDateTime, '%h:%i %p') as time,
+        pv.VisitStatus as visitStatus
+      FROM appointment a
       JOIN Patient p ON a.PatientID = p.PatientID
-      JOIN UserAccount u ON a.DoctorID = u.UserID
-      LEFT JOIN DoctorProfile dp ON u.UserID = dp.DoctorID
+      JOIN useraccount u ON a.DoctorID = u.UserID
+      LEFT JOIN doctorprofile dp ON u.UserID = dp.DoctorID
+      LEFT JOIN patient_visit pv ON a.AppointmentID = pv.AppointmentID
       WHERE a.AppointmentDateTime >= CURDATE()
       ORDER BY a.AppointmentDateTime ASC
     `);
@@ -643,17 +694,33 @@ export const cancelAppointment = async (req: Request, res: Response) => {
   const { appointmentId, reason } = req.body;
   
   try {
+    await db.query("START TRANSACTION");
+    
+    // Cancel appointment
     await db.query(`
-      UPDATE Appointment 
-      SET Status = 'cancelled', Notes = CONCAT(COALESCE(Notes, ''), ' Cancelled: ', ?)
+      UPDATE appointment 
+      SET Status = 'cancelled', Notes = CONCAT(COALESCE(Notes, ''), '\nCancelled: ', ?)
       WHERE AppointmentID = ?
     `, [reason || 'No reason provided', appointmentId]);
+    
+    // Also update any related visits
+    await db.query(`
+      UPDATE patient_visit 
+      SET 
+        VisitStatus = 'cancelled',
+        QueueStatus = 'cancelled',
+        VisitNotes = CONCAT(COALESCE(VisitNotes, ''), '\nAppointment cancelled')
+      WHERE AppointmentID = ?
+    `, [appointmentId]);
+    
+    await db.query("COMMIT");
     
     res.json({
       success: true,
       message: "Appointment cancelled successfully"
     });
   } catch (error: any) {
+    await db.query("ROLLBACK");
     console.error("Cancel appointment error:", error);
     res.status(500).json({ 
       success: false,
@@ -663,7 +730,6 @@ export const cancelAppointment = async (req: Request, res: Response) => {
 };
 
 // ============ WAITING LIST / CHECK-IN ============
-// controllers/receptionistController.ts - Update getTodayVisits function
 export const getTodayVisits = async (req: Request, res: Response) => {
   try {
     const [visits]: any = await db.query(`
@@ -675,13 +741,14 @@ export const getTodayVisits = async (req: Request, res: Response) => {
         pv.QueueStatus,
         pv.ArrivalTime,
         pv.CheckInTime,
-        pv.ReasonForVisit,
+        pv.VisitNotes,
         p.Name as patientName,
         p.PhoneNumber,
         u.Name as doctorName,
         pv.DoctorID,
         pv.PatientID,
         pv.VisitType,
+        pv.TriagePriority,
         CASE 
           WHEN pv.VisitType = 'walk-in' THEN 'Walk-in'
           WHEN pv.VisitType = 'first-time' THEN 'First Visit'
@@ -692,16 +759,23 @@ export const getTodayVisits = async (req: Request, res: Response) => {
       JOIN patient p ON pv.PatientID = p.PatientID
       LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
       WHERE DATE(pv.ArrivalTime) = CURDATE()
-        AND pv.QueueStatus NOT IN ('cancelled', 'no-show')
+        AND pv.QueueStatus NOT IN ('cancelled')
+        AND pv.VisitStatus NOT IN ('cancelled', 'no-show')
       ORDER BY 
         CASE pv.QueueStatus 
           WHEN 'in-progress' THEN 1 
           WHEN 'waiting' THEN 2 
-          WHEN 'checked-in' THEN 3
-          ELSE 4
+          ELSE 3
+        END,
+        CASE pv.TriagePriority
+          WHEN 'critical' THEN 1
+          WHEN 'high' THEN 2
+          WHEN 'medium' THEN 3
+          WHEN 'low' THEN 4
+          ELSE 5
         END,
         pv.QueuePosition,
-        pv.ArrivalTime DESC
+        pv.ArrivalTime
     `);
     
     res.json(visits);
@@ -716,17 +790,64 @@ export const checkInPatient = async (req: Request, res: Response) => {
   
   try {
     const [appointment]: any = await db.query(`
-      UPDATE Appointment 
-      SET Status = 'confirmed', CheckInTime = NOW()
-      WHERE AppointmentID = ?
+      SELECT a.*, pv.VisitID 
+      FROM appointment a
+      LEFT JOIN patient_visit pv ON a.AppointmentID = pv.AppointmentID
+      WHERE a.AppointmentID = ?
     `, [appointmentId]);
     
-    if (appointment.affectedRows === 0) {
+    if (appointment.length === 0) {
       return res.status(404).json({ 
         success: false,
         error: "Appointment not found" 
       });
     }
+    
+    await db.query("START TRANSACTION");
+    
+    // Update appointment status
+    await db.query(`
+      UPDATE appointment 
+      SET Status = 'confirmed'
+      WHERE AppointmentID = ?
+    `, [appointmentId]);
+    
+    // Update or create visit record
+    const appt = appointment[0];
+    if (appt.VisitID) {
+      // Update existing visit
+      await db.query(`
+        UPDATE patient_visit 
+        SET 
+          CheckInTime = NOW(),
+          VisitStatus = 'checked-in',
+          QueueStatus = 'waiting'
+        WHERE VisitID = ?
+      `, [appt.VisitID]);
+    } else {
+      // Create new visit record
+      const now = new Date();
+      const year = now.getFullYear().toString().slice(-2);
+      const month = (now.getMonth() + 1).toString().padStart(2, '0');
+      const day = now.getDate().toString().padStart(2, '0');
+      const dateStr = `${year}${month}${day}`;
+      
+      // Get queue position
+      const [maxPosition]: any = await db.query(
+        'SELECT MAX(QueuePosition) as maxPos FROM patient_visit WHERE DATE(ArrivalTime) = CURDATE()',
+        []
+      );
+      const queuePosition = (maxPosition[0].maxPos || 0) + 1;
+      
+      await db.query(`
+        INSERT INTO patient_visit 
+        (AppointmentID, PatientID, DoctorID, VisitType, ArrivalTime, 
+         CheckInTime, VisitStatus, QueueStatus, QueueNumber, QueuePosition, TriagePriority)
+        VALUES (?, ?, ?, 'follow-up', NOW(), NOW(), 'checked-in', 'waiting', ?, ?, 'low')
+      `, [appointmentId, appt.PatientID, appt.DoctorID, appt.QueueNumber, queuePosition]);
+    }
+    
+    await db.query("COMMIT");
     
     res.json({
       success: true,
@@ -734,6 +855,7 @@ export const checkInPatient = async (req: Request, res: Response) => {
     });
     
   } catch (error: any) {
+    await db.query("ROLLBACK");
     console.error("Check-in error:", error);
     res.status(500).json({ 
       success: false,
@@ -746,27 +868,33 @@ export const updateVisitStatus = async (req: Request, res: Response) => {
   const { visitId, status } = req.body;
   
   try {
-    let updateQuery = '';
+    // Update both VisitStatus and QueueStatus based on the new status
+    let visitStatus = status;
+    let queueStatus = 'waiting';
     
     switch (status) {
       case 'checked-in':
-        updateQuery = `CheckInTime = NOW()`;
+        queueStatus = 'waiting';
         break;
       case 'in-consultation':
-        updateQuery = `ConsultationStartTime = NOW()`;
+        queueStatus = 'in-progress';
         break;
       case 'completed':
-        updateQuery = `ConsultationEndTime = NOW()`;
+        queueStatus = 'completed';
+        // Also set checkout time
+        await db.query(`
+          UPDATE patient_visit 
+          SET CheckOutTime = NOW()
+          WHERE VisitID = ?
+        `, [visitId]);
         break;
     }
     
-    if (updateQuery) {
-      await db.query(`
-        UPDATE patient_visit 
-        SET ${updateQuery}, VisitStatus = ?
-        WHERE VisitID = ?
-      `, [status, visitId]);
-    }
+    await db.query(`
+      UPDATE patient_visit 
+      SET VisitStatus = ?, QueueStatus = ?
+      WHERE VisitID = ?
+    `, [visitStatus, queueStatus, visitId]);
     
     res.json({
       success: true,
@@ -796,9 +924,9 @@ export const getBillingRecords = async (req: Request, res: Response) => {
         DATE(b.BillingDate) as date,
         b.AmountPaid,
         b.PatientResponsibility
-      FROM Billing b
+      FROM billing b
       JOIN Patient p ON b.PatientID = p.PatientID
-      JOIN UserAccount u ON b.HandledBy = u.UserID
+      JOIN useraccount u ON b.HandledBy = u.UserID
       WHERE b.Status != 'cancelled'
       ORDER BY b.BillingDate DESC
       LIMIT 10
@@ -824,7 +952,7 @@ export const processPayment = async (req: Request, res: Response) => {
     await db.query("START TRANSACTION");
     
     const [billing]: any = await db.query(`
-      SELECT TotalAmount, AmountPaid FROM Billing WHERE BillID = ?
+      SELECT TotalAmount, AmountPaid FROM billing WHERE BillID = ?
     `, [billId]);
     
     if (billing.length === 0) {
@@ -849,14 +977,14 @@ export const processPayment = async (req: Request, res: Response) => {
     
     // Update billing
     await db.query(`
-      UPDATE Billing 
+      UPDATE billing 
       SET Status = ?, AmountPaid = ?, PaymentDate = CURDATE()
       WHERE BillID = ?
     `, [newStatus, newPaid, billId]);
     
     // Create payment record
     await db.query(`
-      INSERT INTO Payment 
+      INSERT INTO payment 
       (BillID, AmountPaid, PaymentMethod, PaymentDate, ProcessedBy, Notes)
       VALUES (?, ?, ?, CURDATE(), ?, ?)
     `, [billId, amountPaid, paymentMethod, processedBy, notes]);
@@ -888,8 +1016,8 @@ export const getDoctors = async (req: Request, res: Response) => {
         u.Name, 
         dp.Specialization,
         dp.ClinicRoom
-      FROM UserAccount u
-      LEFT JOIN DoctorProfile dp ON u.UserID = dp.DoctorID
+      FROM useraccount u
+      LEFT JOIN doctorprofile dp ON u.UserID = dp.DoctorID
       WHERE u.Role = 'doctor' AND u.Status = 'Active'
       ORDER BY u.Name
     `);
@@ -908,7 +1036,7 @@ export const getReceptionistProfile = async (req: Request, res: Response) => {
   try {
     const [receptionist]: any = await db.query(`
       SELECT UserID as userId, Name, Email, PhoneNum as phone, Role, Status
-      FROM UserAccount 
+      FROM useraccount 
       WHERE UserID = ? AND Role = 'receptionist'
     `, [receptionistId]);
     
@@ -926,33 +1054,46 @@ export const getReceptionistProfile = async (req: Request, res: Response) => {
 export const getDashboardStats = async (req: Request, res: Response) => {
   try {
     const [todayAppointments]: any = await db.query(`
-      SELECT COUNT(*) as count FROM Appointment 
-      WHERE DATE(AppointmentDateTime) = CURDATE() 
-      AND Status IN ('scheduled', 'confirmed')
+      SELECT 
+        COUNT(*) as count,
+        SUM(CASE WHEN Status = 'scheduled' THEN 1 ELSE 0 END) as scheduled,
+        SUM(CASE WHEN Status = 'confirmed' THEN 1 ELSE 0 END) as confirmed
+      FROM appointment 
+      WHERE DATE(AppointmentDateTime) = CURDATE()
     `);
     
     const [todayVisits]: any = await db.query(`
-      SELECT COUNT(*) as count FROM patient_visit 
+      SELECT 
+        COUNT(*) as count,
+        SUM(CASE WHEN VisitStatus = 'checked-in' THEN 1 ELSE 0 END) as checkedIn,
+        SUM(CASE WHEN VisitStatus = 'in-consultation' THEN 1 ELSE 0 END) as inConsultation
+      FROM patient_visit 
       WHERE DATE(ArrivalTime) = CURDATE()
+        AND VisitStatus NOT IN ('cancelled', 'no-show')
     `);
     
     const [waitingPatients]: any = await db.query(`
       SELECT COUNT(*) as count FROM patient_visit 
       WHERE DATE(ArrivalTime) = CURDATE() 
-      AND VisitStatus IN ('arrived', 'checked-in')
+        AND QueueStatus = 'waiting'
+        AND VisitStatus = 'checked-in'
     `);
     
     const [pendingPayments]: any = await db.query(`
-      SELECT COUNT(*) as count FROM Billing 
+      SELECT COUNT(*) as count FROM billing 
       WHERE Status IN ('pending', 'partial')
-      AND BillingDate = CURDATE()
+        AND BillingDate = CURDATE()
     `);
     
     res.json({
       success: true,
       stats: {
         todayAppointments: todayAppointments[0].count,
+        scheduledAppointments: todayAppointments[0].scheduled,
+        confirmedAppointments: todayAppointments[0].confirmed,
         todayVisits: todayVisits[0].count,
+        checkedInPatients: todayVisits[0].checkedIn,
+        inConsultationPatients: todayVisits[0].inConsultation,
         waitingPatients: waitingPatients[0].count,
         pendingPayments: pendingPayments[0].count
       }

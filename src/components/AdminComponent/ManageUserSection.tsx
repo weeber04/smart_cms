@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle
-} from './ui/card';
-import { Input } from './ui/input';
-import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { Avatar, AvatarFallback } from './ui/avatar';
+} from '../ui/card';
+import { Input } from '../ui/input';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Avatar, AvatarFallback } from '../ui/avatar';
 import { 
   Search, 
   MoreVertical, 
@@ -22,10 +22,10 @@ import {
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
-} from './ui/dropdown-menu';
+} from '../ui/dropdown-menu';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
-} from './ui/table';
+} from '../ui/table';
 import {
   Dialog,
   DialogContent,
@@ -33,7 +33,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter
-} from './ui/dialog';
+} from '../ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,9 +43,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from './ui/alert-dialog';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+} from '../ui/alert-dialog';
+import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface User {
   id: number;
