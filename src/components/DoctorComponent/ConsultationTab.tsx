@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Stethoscope, ClipboardList, Calendar, Users, FileText, User } from 'lucide-react';
+import { Stethoscope, ClipboardList, Calendar, FileText, User, Activity, Heart, Thermometer, Droplet, Wind } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -17,27 +17,93 @@ interface ConsultationTabProps {
   setTodayAppointments: (appointments: any[]) => void;
 }
 
+interface PatientVital {
+  VitalSignID?: number;
+  ConsultationID?: number;
+  TakenBy: number;
+  TakenAt: string;
+  BloodPressureSystolic?: string;
+  BloodPressureDiastolic?: string;
+  BloodPressure?: string;
+  HeartRate?: string;
+  RespiratoryRate?: string;
+  Temperature?: string;
+  OxygenSaturation?: string;
+  Height?: string;
+  Weight?: string;
+  BMI?: string;
+  PainLevel?: string;
+  Notes?: string;
+}
+
+interface PatientData {
+  PatientID: number;
+  Name: string;
+  age?: number;
+  Gender: string;
+  BloodType?: string;
+}
+
 export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, setTodayAppointments }: ConsultationTabProps) {
   const [selectedPatient, setSelectedPatient] = useState<number | null>(null);
+  const [activeSubTab, setActiveSubTab] = useState<'consultation' | 'vitals'>('consultation');
   const [showPatientDetails, setShowPatientDetails] = useState(false);
-  const [showAssignNurse, setShowAssignNurse] = useState(false);
   const [showScheduleFollowUp, setShowScheduleFollowUp] = useState(false);
   const [showOrderTests, setShowOrderTests] = useState(false);
   const [showReferral, setShowReferral] = useState(false);
   const [consultationSaved, setConsultationSaved] = useState(false);
+  const [vitalsSaved, setVitalsSaved] = useState(false);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
-  const [selectedPatientData, setSelectedPatientData] = useState<any>(null);
+  const [selectedPatientData, setSelectedPatientData] = useState<PatientData | null>(null);
+  const [patientVitals, setPatientVitals] = useState<PatientVital[]>([]);
+  const [currentVitals, setCurrentVitals] = useState<PatientVital>({
+    TakenBy: doctorId || 0,
+    TakenAt: new Date().toISOString(),
+    BloodPressure: '',
+    Temperature: '',
+    HeartRate: '',
+    OxygenSaturation: '',
+    RespiratoryRate: '',
+    Height: '',
+    Weight: '',
+    BMI: '',
+    PainLevel: '',
+    Notes: ''
+  });
 
   // Fetch patient details when selected
   useEffect(() => {
-    if (selectedPatient) {
+    if (selectedPatient && doctorId) {
       fetchPatientDetails(selectedPatient);
+      fetchPatientVitals(selectedPatient);
+      
+      setCurrentVitals({
+        TakenBy: doctorId,
+        TakenAt: new Date().toISOString(),
+        BloodPressure: '',
+        Temperature: '',
+        HeartRate: '',
+        OxygenSaturation: '',
+        RespiratoryRate: '',
+        Height: '',
+        Weight: '',
+        BMI: '',
+        PainLevel: '',
+        Notes: ''
+      });
     }
-  }, [selectedPatient]);
+  }, [selectedPatient, doctorId]);
 
   const fetchPatientDetails = async (patientId: number) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/doctor/patient/${patientId}`);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/doctor/patient/${patientId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
       if (response.ok) {
         const patientData = await response.json();
         setSelectedPatientData(patientData);
@@ -48,6 +114,29 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
     } catch (error) {
       console.error("Error fetching patient details:", error);
       setSelectedPatientData(null);
+    }
+  };
+
+  const fetchPatientVitals = async (patientId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/doctor/patient/${patientId}/vitals`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const vitalsData = await response.json();
+        setPatientVitals(vitalsData);
+      } else {
+        console.warn('Failed to fetch patient vitals');
+        setPatientVitals([]);
+      }
+    } catch (error) {
+      console.error("Error fetching patient vitals:", error);
+      setPatientVitals([]);
     }
   };
 
@@ -68,9 +157,13 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
         notes: (document.getElementById('notes') as HTMLTextAreaElement)?.value || ''
       };
 
+      const token = localStorage.getItem('token');
       const response = await fetch("http://localhost:3001/api/doctor/consultation", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(consultationData)
       });
 
@@ -80,14 +173,17 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
         setConsultationSaved(true);
         setTimeout(() => setConsultationSaved(false), 3000);
         
-        // Clear form
         ['symptoms', 'diagnosis', 'prescription', 'notes'].forEach(id => {
           const element = document.getElementById(id) as HTMLTextAreaElement;
           if (element) element.value = '';
         });
         
-        // Refresh appointments list
-        const appointmentsRes = await fetch(`http://localhost:3001/api/doctor/appointments/${doctorId}`);
+        const appointmentsRes = await fetch(`http://localhost:3001/api/doctor/appointments/${doctorId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
         if (appointmentsRes.ok) {
           const appointmentsData = await appointmentsRes.json();
           setTodayAppointments(appointmentsData);
@@ -101,6 +197,131 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
     }
   };
 
+  const handleSaveVitals = async () => {
+    if (!selectedPatient || !doctorId || !selectedPatientData) {
+      alert('Please select a patient first');
+      return;
+    }
+
+    if (!currentVitals.BloodPressure || !currentVitals.Temperature || !currentVitals.HeartRate) {
+      alert('Please fill in at least Blood Pressure, Temperature, and Heart Rate');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      
+      const visitResponse = await fetch(`http://localhost:3001/api/doctor/patient/${selectedPatient}/active-visit`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let consultationId = null;
+      
+      if (visitResponse.ok) {
+        const visitData = await visitResponse.json();
+        consultationId = visitData.ConsultationID;
+      } else {
+        const createVisitData = {
+          patientId: selectedPatient,
+          doctorId: doctorId,
+          visitType: 'walk-in',
+          visitNotes: 'Vital signs recording'
+        };
+
+        const visitCreateRes = await fetch("http://localhost:3001/api/doctor/create-visit", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(createVisitData)
+        });
+
+        if (visitCreateRes.ok) {
+          const visitResult = await visitCreateRes.json();
+          consultationId = visitResult.ConsultationID;
+        }
+      }
+
+      const bpParts = currentVitals.BloodPressure.split('/');
+      const vitalData = {
+        patientId: selectedPatient,
+        doctorId: doctorId,
+        consultationId: consultationId,
+        bloodPressureSystolic: bpParts[0]?.trim(),
+        bloodPressureDiastolic: bpParts[1]?.trim(),
+        temperature: currentVitals.Temperature,
+        heartRate: currentVitals.HeartRate,
+        oxygenSaturation: currentVitals.OxygenSaturation,
+        respiratoryRate: currentVitals.RespiratoryRate,
+        height: currentVitals.Height,
+        weight: currentVitals.Weight,
+        bmi: currentVitals.BMI,
+        painLevel: currentVitals.PainLevel,
+        notes: currentVitals.Notes
+      };
+
+      const response = await fetch("http://localhost:3001/api/doctor/vital-signs", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(vitalData)
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setVitalsSaved(true);
+        setTimeout(() => setVitalsSaved(false), 3000);
+        
+        fetchPatientVitals(selectedPatient);
+        
+        setCurrentVitals(prev => ({
+          ...prev,
+          BloodPressure: '',
+          Temperature: '',
+          HeartRate: '',
+          OxygenSaturation: '',
+          RespiratoryRate: '',
+          Height: '',
+          Weight: '',
+          BMI: '',
+          PainLevel: '',
+          Notes: ''
+        }));
+      } else {
+        alert(result.error || 'Failed to save vital signs');
+      }
+    } catch (error) {
+      console.error("Vitals save error:", error);
+      alert("Failed to save vital signs. Please try again.");
+    }
+  };
+
+  const handleInputChange = (field: keyof PatientVital, value: string) => {
+    const newVitals = { ...currentVitals, [field]: value };
+    
+    if (field === 'Height' || field === 'Weight') {
+      const height = field === 'Height' ? parseFloat(value) : parseFloat(newVitals.Height || '0');
+      const weight = field === 'Weight' ? parseFloat(value) : parseFloat(newVitals.Weight || '0');
+      
+      if (height > 0 && weight > 0) {
+        const heightMeters = height / 100;
+        const bmi = (weight / (heightMeters * heightMeters)).toFixed(1);
+        newVitals.BMI = bmi;
+      } else {
+        newVitals.BMI = '';
+      }
+    }
+    
+    setCurrentVitals(newVitals);
+  };
+
   const handlePrintPrescription = () => {
     setShowPrintPreview(true);
   };
@@ -109,9 +330,13 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
     if (!doctorId || !selectedPatient) return;
 
     try {
+      const token = localStorage.getItem('token');
       const response = await fetch("http://localhost:3001/api/doctor/follow-up", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
           ...followUpData,
           patientId: selectedPatient,
@@ -134,14 +359,33 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
     }
   };
 
+  const formatVitalForDisplay = (vital: PatientVital) => {
+    return {
+      id: vital.VitalSignID,
+      date: new Date(vital.TakenAt).toLocaleString(),
+      bp: vital.BloodPressureSystolic && vital.BloodPressureDiastolic 
+        ? `${vital.BloodPressureSystolic}/${vital.BloodPressureDiastolic}`
+        : 'N/A',
+      temp: vital.Temperature ? `${vital.Temperature}°C` : 'N/A',
+      pulse: vital.HeartRate ? `${vital.HeartRate} bpm` : 'N/A',
+      spo2: vital.OxygenSaturation ? `${vital.OxygenSaturation}%` : 'N/A',
+      respiratory: vital.RespiratoryRate ? `${vital.RespiratoryRate} bpm` : 'N/A',
+      height: vital.Height ? `${vital.Height} cm` : 'N/A',
+      weight: vital.Weight ? `${vital.Weight} kg` : 'N/A',
+      bmi: vital.BMI || 'N/A',
+      pain: vital.PainLevel ? `Level ${vital.PainLevel}/10` : 'N/A',
+      notes: vital.Notes
+    };
+  };
+
   return (
     <div className="grid lg:grid-cols-3 gap-6">
-      {/* Today's Appointments */}
+      {/* Patient List */}
       <Card className="lg:col-span-1">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="size-5" />
-            Today's Appointments
+            Today's Patients
           </CardTitle>
           <CardDescription>{todayAppointments.length} patients scheduled</CardDescription>
         </CardHeader>
@@ -151,11 +395,14 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
               <div
                 key={appointment.id}
                 className={`p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                  selectedPatient === appointment.id
+                  selectedPatient === appointment.patientId
                     ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
-                onClick={() => setSelectedPatient(appointment.id)}
+                onClick={() => {
+                  setSelectedPatient(appointment.patientId);
+                  setActiveSubTab('consultation');
+                }}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div>
@@ -164,17 +411,17 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
                   </div>
                   <Badge
                     variant={
-                      appointment.status === 'in-progress'
+                      appointment.status === 'in-consultation'
                         ? 'default'
-                        : appointment.status === 'waiting'
+                        : appointment.status === 'checked-in'
                         ? 'secondary'
                         : 'outline'
                     }
                     className={
-                      appointment.status === 'in-progress'
+                      appointment.status === 'in-consultation'
                         ? 'bg-blue-100 text-blue-800'
-                        : appointment.status === 'waiting'
-                        ? 'bg-orange-100 text-orange-800'
+                        : appointment.status === 'checked-in'
+                        ? 'bg-green-100 text-green-800'
                         : ''
                     }
                   >
@@ -182,195 +429,400 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
                   </Badge>
                 </div>
                 <p className="text-xs text-gray-600">{appointment.type}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {appointment.VisitType}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {appointment.TriagePriority}
+                  </Badge>
+                </div>
               </div>
             ))}
             {todayAppointments.length === 0 && (
               <div className="text-center py-8 text-gray-500">
                 <Calendar className="size-12 mx-auto mb-3 text-gray-400" />
-                <p>No appointments scheduled for today</p>
+                <p>No patients scheduled for today</p>
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Consultation Form */}
+      {/* Main Content with Sub-tabs */}
       <Card className="lg:col-span-2">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ClipboardList className="size-5" />
-            Patient Consultation
-          </CardTitle>
-          <CardDescription>
-            {selectedPatient
-              ? `Recording consultation for ${todayAppointments.find(a => a.id === selectedPatient)?.name}`
-              : 'Select a patient to begin consultation'}
-          </CardDescription>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                {activeSubTab === 'consultation' ? (
+                  <>
+                    <ClipboardList className="size-5" />
+                    Patient Consultation
+                  </>
+                ) : (
+                  <>
+                    <Activity className="size-5" />
+                    Vital Signs
+                  </>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {selectedPatient && selectedPatientData
+                  ? `${selectedPatientData.Name} - ${activeSubTab === 'consultation' ? 'Consultation' : 'Vital Signs Monitoring'}`
+                  : 'Select a patient to begin'}
+              </CardDescription>
+            </div>
+            
+            {selectedPatient && (
+              <div className="flex gap-1 border rounded-lg p-1">
+                <button
+                  onClick={() => setActiveSubTab('consultation')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    activeSubTab === 'consultation'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Consultation
+                </button>
+                <button
+                  onClick={() => setActiveSubTab('vitals')}
+                  className={`px-3 py-1 text-sm rounded transition-colors ${
+                    activeSubTab === 'vitals'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Vital Signs
+                </button>
+              </div>
+            )}
+          </div>
         </CardHeader>
+        
         <CardContent>
-          {selectedPatient ? (
+          {selectedPatient && selectedPatientData ? (
             <div className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Patient Name</Label>
-                  <Input
-                    value={todayAppointments.find(a => a.id === selectedPatient)?.name || ''}
-                    disabled
-                  />
+              {/* Patient Info Banner */}
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm text-gray-900 font-medium">{selectedPatientData.Name}</p>
+                    <div className="flex gap-4 mt-1">
+                      <p className="text-xs text-gray-600">Age: {selectedPatientData.age || 'N/A'}</p>
+                      <p className="text-xs text-gray-600">Gender: {selectedPatientData.Gender === 'M' ? 'Male' : 'Female'}</p>
+                      <p className="text-xs text-gray-600">Blood Type: {selectedPatientData.BloodType || 'N/A'}</p>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-xs">
+                    {todayAppointments.find(a => a.patientId === selectedPatient)?.VisitType || 'Regular'}
+                  </Badge>
                 </div>
-                <div className="space-y-2">
-                  <Label>Visit Type</Label>
-                  <Input
-                    value={todayAppointments.find(a => a.id === selectedPatient)?.type || ''}
-                    disabled
-                  />
+              </div>
+
+              {activeSubTab === 'consultation' ? (
+                /* Consultation Form */
+                <div className="space-y-4">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Patient Name</Label>
+                      <Input
+                        value={selectedPatientData.Name}
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Visit Type</Label>
+                      <Input
+                        value={todayAppointments.find(a => a.patientId === selectedPatient)?.type || 'Consultation'}
+                        disabled
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="symptoms">Chief Complaint / Symptoms</Label>
+                    <Textarea
+                      id="symptoms"
+                      placeholder="Describe patient's symptoms..."
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="diagnosis">Diagnosis</Label>
+                    <Textarea
+                      id="diagnosis"
+                      placeholder="Enter diagnosis..."
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="prescription">Prescription / Treatment Plan</Label>
+                    <Textarea
+                      id="prescription"
+                      placeholder="Medication, dosage, and treatment instructions..."
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="notes">Doctor's Notes</Label>
+                    <Textarea
+                      id="notes"
+                      placeholder="Additional notes..."
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleSaveConsultation}>
+                      Save Consultation
+                    </Button>
+                    <Button variant="outline" onClick={handlePrintPrescription}>
+                      Print Prescription
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowPatientDetails(true)}>
+                      <User className="size-4 mr-2" />
+                      View Full Record
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowScheduleFollowUp(true)}>
+                      <Calendar className="size-4 mr-2" />
+                      Schedule Follow-up
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowOrderTests(true)}>
+                      <FileText className="size-4 mr-2" />
+                      Order Lab Tests
+                    </Button>
+                  </div>
+                  {consultationSaved && (
+                    <div className="mt-3 text-sm text-green-500">
+                      Consultation saved successfully!
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : (
+                /* Vital Signs Form */
+                <div className="space-y-6">
+                  <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bp" className="flex items-center gap-2">
+                        <Droplet className="size-4 text-red-500" />
+                        Blood Pressure
+                      </Label>
+                      <Input
+                        id="bp"
+                        placeholder="120/80"
+                        value={currentVitals.BloodPressure}
+                        onChange={(e) => handleInputChange('BloodPressure', e.target.value)}
+                      />
+                      <p className="text-xs text-gray-500">Format: systolic/diastolic</p>
+                    </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="symptoms">Chief Complaint / Symptoms</Label>
-                <Textarea
-                  id="symptoms"
-                  placeholder="Describe patient's symptoms..."
-                  rows={3}
-                />
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="temp" className="flex items-center gap-2">
+                        <Thermometer className="size-4 text-orange-500" />
+                        Temperature
+                      </Label>
+                      <Input
+                        id="temp"
+                        placeholder="37.0"
+                        value={currentVitals.Temperature}
+                        onChange={(e) => handleInputChange('Temperature', e.target.value)}
+                      />
+                      <p className="text-xs text-gray-500">°C</p>
+                    </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="diagnosis">Diagnosis</Label>
-                <Textarea
-                  id="diagnosis"
-                  placeholder="Enter diagnosis..."
-                  rows={2}
-                />
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="pulse" className="flex items-center gap-2">
+                        <Heart className="size-4 text-pink-500" />
+                        Heart Rate
+                      </Label>
+                      <Input
+                        id="pulse"
+                        placeholder="72"
+                        value={currentVitals.HeartRate}
+                        onChange={(e) => handleInputChange('HeartRate', e.target.value)}
+                      />
+                      <p className="text-xs text-gray-500">bpm</p>
+                    </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="prescription">Prescription / Treatment Plan</Label>
-                <Textarea
-                  id="prescription"
-                  placeholder="Medication, dosage, and treatment instructions..."
-                  rows={3}
-                />
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="spo2" className="flex items-center gap-2">
+                        <Wind className="size-4 text-blue-500" />
+                        SpO2 Level
+                      </Label>
+                      <Input
+                        id="spo2"
+                        placeholder="98"
+                        value={currentVitals.OxygenSaturation}
+                        onChange={(e) => handleInputChange('OxygenSaturation', e.target.value)}
+                      />
+                      <p className="text-xs text-gray-500">%</p>
+                    </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="notes">Doctor's Notes</Label>
-                <Textarea
-                  id="notes"
-                  placeholder="Additional notes..."
-                  rows={2}
-                />
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="respiratory">Respiratory Rate</Label>
+                      <Input
+                        id="respiratory"
+                        placeholder="16"
+                        value={currentVitals.RespiratoryRate}
+                        onChange={(e) => handleInputChange('RespiratoryRate', e.target.value)}
+                      />
+                      <p className="text-xs text-gray-500">breaths/min</p>
+                    </div>
 
-              <div className="flex flex-wrap gap-3">
-                <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleSaveConsultation}>
-                  Save Consultation
-                </Button>
-                <Button variant="outline" onClick={handlePrintPrescription}>
-                  Print Prescription
-                </Button>
-                <Button variant="outline" onClick={() => {
-                  setShowPatientDetails(true);
-                }}>
-                  <User className="size-4 mr-2" />
-                  View Full Record
-                </Button>
-                <Button variant="outline" onClick={() => setShowScheduleFollowUp(true)}>
-                  <Calendar className="size-4 mr-2" />
-                  Schedule Follow-up
-                </Button>
-                <Button variant="outline" onClick={() => setShowAssignNurse(true)}>
-                  <Users className="size-4 mr-2" />
-                  Assign to Nurse
-                </Button>
-                <Button variant="outline" onClick={() => setShowOrderTests(true)}>
-                  <FileText className="size-4 mr-2" />
-                  Order Lab Tests
-                </Button>
-                <Button variant="outline" onClick={() => setShowReferral(true)}>
-                  <Users className="size-4 mr-2" />
-                  Create Referral
-                </Button>
-              </div>
-              {consultationSaved && (
-                <div className="mt-3 text-sm text-green-500">
-                  Consultation saved successfully!
+                    <div className="space-y-2">
+                      <Label htmlFor="pain">Pain Level (0-10)</Label>
+                      <Input
+                        id="pain"
+                        placeholder="0"
+                        type="number"
+                        min="0"
+                        max="10"
+                        value={currentVitals.PainLevel}
+                        onChange={(e) => handleInputChange('PainLevel', e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="height">Height (cm)</Label>
+                      <Input
+                        id="height"
+                        placeholder="170"
+                        value={currentVitals.Height}
+                        onChange={(e) => handleInputChange('Height', e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="weight">Weight (kg)</Label>
+                      <Input
+                        id="weight"
+                        placeholder="70"
+                        value={currentVitals.Weight}
+                        onChange={(e) => handleInputChange('Weight', e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="bmi">BMI</Label>
+                      <Input
+                        id="bmi"
+                        placeholder="24.2"
+                        value={currentVitals.BMI}
+                        disabled
+                      />
+                      <p className="text-xs text-gray-500">Auto-calculated</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="vital-notes">Notes on Vital Signs</Label>
+                    <Textarea
+                      id="vital-notes"
+                      placeholder="Observations about vital signs, patient response, concerns..."
+                      rows={3}
+                      value={currentVitals.Notes}
+                      onChange={(e) => handleInputChange('Notes', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button 
+                      className="bg-blue-600 hover:bg-blue-700" 
+                      onClick={handleSaveVitals}
+                      disabled={!currentVitals.BloodPressure || !currentVitals.Temperature || !currentVitals.HeartRate}
+                    >
+                      Save Vital Signs
+                    </Button>
+                    <Button variant="outline" onClick={() => setActiveSubTab('consultation')}>
+                      Go to Consultation
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowPatientDetails(true)}>
+                      View Patient History
+                    </Button>
+                  </div>
+                  
+                  {vitalsSaved && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
+                      Vital signs saved successfully!
+                    </div>
+                  )}
+
+                  {/* Recent Vital Signs History */}
+                  {patientVitals.length > 0 && (
+                    <div className="pt-6 border-t">
+                      <h3 className="text-sm text-gray-900 mb-3">Recent Vital Signs History</h3>
+                      <div className="space-y-3">
+                        {patientVitals.map((vital, index) => {
+                          const formattedVital = formatVitalForDisplay(vital);
+                          return (
+                            <div
+                              key={index}
+                              className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <p className="text-xs text-gray-600">{formattedVital.date}</p>
+                                <Badge variant="outline" className="text-xs">
+                                  Recorded
+                                </Badge>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-2">
+                                <div>
+                                  <p className="text-xs text-gray-600">BP</p>
+                                  <p className="text-sm text-gray-900">{formattedVital.bp}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-600">Temp</p>
+                                  <p className="text-sm text-gray-900">{formattedVital.temp}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-600">HR</p>
+                                  <p className="text-sm text-gray-900">{formattedVital.pulse}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-600">SpO2</p>
+                                  <p className="text-sm text-gray-900">{formattedVital.spo2}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-600">Resp.</p>
+                                  <p className="text-sm text-gray-900">{formattedVital.respiratory}</p>
+                                </div>
+                              </div>
+                              {formattedVital.notes && (
+                                <div className="mt-2 pt-2 border-t border-gray-200">
+                                  <p className="text-xs text-gray-600 mb-1">Notes:</p>
+                                  <p className="text-xs text-gray-800">{formattedVital.notes}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           ) : (
             <div className="text-center py-12 text-gray-500">
               <Stethoscope className="size-12 mx-auto mb-3 text-gray-400" />
-              <p>Select a patient from today's appointments to begin consultation</p>
+              <p>Select a patient from today's appointments to begin</p>
+              <p className="text-sm mt-1">You can switch between Consultation and Vital Signs tabs</p>
             </div>
           )}
         </CardContent>
       </Card>
 
+      {/* Patient Details Modal */}
       <PatientDetailsModal
         open={showPatientDetails}
         onOpenChange={setShowPatientDetails}
         patient={selectedPatientData}
       />
-
-      {/* Assign to Nurse Dialog */}
-      <Dialog open={showAssignNurse} onOpenChange={setShowAssignNurse}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign Patient to Nurse</DialogTitle>
-            <DialogDescription>
-              Assign {todayAppointments.find(a => a.id === selectedPatient)?.name} to a nurse for care
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="nurse">Select Nurse</Label>
-              <Select>
-                <SelectTrigger id="nurse">
-                  <SelectValue placeholder="Choose a nurse" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="emily">Emily White - General Care</SelectItem>
-                  <SelectItem value="maria">Maria Garcia - ICU</SelectItem>
-                  <SelectItem value="james">James Wilson - Cardiology</SelectItem>
-                  <SelectItem value="sarah">Sarah Brown - Pediatrics</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="priority">Priority Level</Label>
-              <Select>
-                <SelectTrigger id="priority">
-                  <SelectValue placeholder="Select priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="routine">Routine</SelectItem>
-                  <SelectItem value="moderate">Moderate</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                  <SelectItem value="critical">Critical</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="instructions">Care Instructions</Label>
-              <Textarea
-                id="instructions"
-                placeholder="Special instructions for nursing care..."
-                rows={3}
-              />
-            </div>
-            <div className="flex gap-3">
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700">
-                Assign Patient
-              </Button>
-              <Button variant="outline" onClick={() => setShowAssignNurse(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Schedule Follow-up Dialog */}
       <Dialog open={showScheduleFollowUp} onOpenChange={setShowScheduleFollowUp}>
@@ -378,14 +830,18 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
           <DialogHeader>
             <DialogTitle>Schedule Follow-up Appointment</DialogTitle>
             <DialogDescription>
-              Schedule a follow-up for {todayAppointments.find(a => a.id === selectedPatient)?.name}
+              Schedule a follow-up for {selectedPatientData?.Name}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="followup-date">Date</Label>
-                <Input id="followup-date" type="date" />
+                <Input 
+                  id="followup-date" 
+                  type="date" 
+                  min={new Date().toISOString().split('T')[0]} 
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="followup-time">Time</Label>
@@ -443,7 +899,7 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
           <DialogHeader>
             <DialogTitle>Order Laboratory Tests</DialogTitle>
             <DialogDescription>
-              Order lab tests for {todayAppointments.find(a => a.id === selectedPatient)?.name}
+              Order lab tests for {selectedPatientData?.Name}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -485,107 +941,6 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
                 Order Tests
               </Button>
               <Button variant="outline" onClick={() => setShowOrderTests(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Referral Dialog */}
-      <Dialog open={showReferral} onOpenChange={setShowReferral}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Referral</DialogTitle>
-            <DialogDescription>
-              Refer {todayAppointments.find(a => a.id === selectedPatient)?.name} to a specialist
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="specialty">Specialty</Label>
-              <Select>
-                <SelectTrigger id="specialty">
-                  <SelectValue placeholder="Select specialty" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cardiology">Cardiology</SelectItem>
-                  <SelectItem value="neurology">Neurology</SelectItem>
-                  <SelectItem value="orthopedics">Orthopedics</SelectItem>
-                  <SelectItem value="oncology">Oncology</SelectItem>
-                  <SelectItem value="gastro">Gastroenterology</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="reason">Reason for Referral</Label>
-              <Textarea
-                id="reason"
-                placeholder="Clinical findings and reason for referral..."
-                rows={3}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="urgency">Urgency</Label>
-              <Select>
-                <SelectTrigger id="urgency">
-                  <SelectValue placeholder="Select urgency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="routine">Routine</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                  <SelectItem value="emergency">Emergency</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-3">
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700">
-                Create Referral
-              </Button>
-              <Button variant="outline" onClick={() => setShowReferral(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Print Preview Dialog */}
-      <Dialog open={showPrintPreview} onOpenChange={setShowPrintPreview}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Print Prescription</DialogTitle>
-            <DialogDescription>Prescription preview</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="p-4 border-2 border-gray-300 rounded-lg bg-white">
-              <div className="text-center mb-4 pb-4 border-b">
-                <h3 className="text-lg">HealthCare Clinic</h3>
-                <p className="text-sm text-gray-600">123 Medical Center Dr, Suite 100</p>
-                <p className="text-sm text-gray-600">Phone: +1 (555) 123-4567</p>
-              </div>
-              <div className="mb-4">
-                <p className="text-sm"><span className="font-medium">Patient:</span> {todayAppointments.find(a => a.id === selectedPatient)?.name}</p>
-                <p className="text-sm"><span className="font-medium">Date:</span> {new Date().toLocaleDateString()}</p>
-                <p className="text-sm"><span className="font-medium">Doctor:</span> {doctorProfile?.Name}</p>
-              </div>
-              <div className="mb-4">
-                <p className="text-sm font-medium mb-2">Rx</p>
-                <p className="text-sm mb-2">Medication details will be printed here</p>
-              </div>
-              <div className="mt-4 pt-4 border-t">
-                <p className="text-sm text-gray-600">{doctorProfile?.Name}, MD</p>
-                <p className="text-sm text-gray-600">License #: 12345</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={() => {
-                alert('Printing prescription...');
-                setShowPrintPreview(false);
-              }}>
-                Print
-              </Button>
-              <Button variant="outline" onClick={() => setShowPrintPreview(false)}>
                 Cancel
               </Button>
             </div>

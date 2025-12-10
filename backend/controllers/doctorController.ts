@@ -32,6 +32,7 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
     const [appointments]: any = await db.query(`
       SELECT 
         pv.VisitID as id,
+        pv.PatientID as patientId,  -- ADD THIS LINE - Get the PatientID!
         p.Name as name, 
         DATE_FORMAT(pv.ArrivalTime, '%h:%i %p') as time,
         pv.VisitNotes as type,
@@ -48,6 +49,8 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
         AND pv.QueueStatus IN ('waiting', 'in-progress')
       ORDER BY pv.QueuePosition ASC
     `, [doctorId]);
+    
+    console.log('Appointments with PatientID:', appointments); // For debugging
     
     res.json(appointments);
   } catch (error) {
@@ -269,67 +272,115 @@ export const getPatientDetails = async (req: Request, res: Response) => {
   const { patientId } = req.params;
   
   try {
+    console.log('Getting patient details for ID:', patientId);
+    
     // Get basic patient info
     const [patient]: any = await db.query(`
-      SELECT p.*, 
-             TIMESTAMPDIFF(YEAR, p.DOB, CURDATE()) as age
+      SELECT 
+        p.PatientID, 
+        p.Name, 
+        p.Gender,
+        p.DOB,
+        p.BloodType,
+        p.PhoneNumber,
+        p.Email,
+        p.Address,
+        p.ICNo,
+        p.InsuranceProvider,
+        p.InsurancePolicyNo,
+        TIMESTAMPDIFF(YEAR, p.DOB, CURDATE()) as age
       FROM patient p
       WHERE p.PatientID = ?
     `, [patientId]);
     
+    console.log('Patient query result:', patient);
+    
     if (patient.length === 0) {
+      console.log('Patient not found in database');
       return res.status(404).json({ error: "Patient not found" });
     }
     
-    // Get allergies
-    const [allergies]: any = await db.query(`
-      SELECT AllergyName as allergy, Severity
-      FROM patientallergy 
-      WHERE PatientID = ?
-    `, [patientId]);
-    
-    // Get current medications
-    const [medications]: any = await db.query(`
-      SELECT MedicationName as name, Dosage as dosage, Frequency as frequency, Status
-      FROM patientmedication 
-      WHERE PatientID = ? AND Status = 'active'
-    `, [patientId]);
-    
-    // Get medical conditions
-    const [conditions]: any = await db.query(`
-      SELECT ConditionName as condition, DiagnosedDate as diagnosed, Status as status
-      FROM medicalcondition 
-      WHERE PatientID = ?
-    `, [patientId]);
-    
-    // Get recent visits (from patient_visit table)
-    const [visits]: any = await db.query(`
-      SELECT 
-        pv.VisitID,
-        pv.ArrivalTime as VisitDate,
-        pv.VisitType,
-        pv.VisitNotes,
-        pv.VisitStatus,
-        u.Name as doctor_name
-      FROM patient_visit pv
-      LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
-      WHERE pv.PatientID = ?
-      ORDER BY pv.ArrivalTime DESC
-      LIMIT 5
-    `, [patientId]);
-    
     const patientData = {
-      ...patient[0],
-      allergies: allergies,
-      medicalHistory: conditions,
-      currentMedications: medications,
-      recentVisits: visits
+      ...patient[0]
     };
     
+    // Try to get allergies (this might fail if table doesn't exist or has no data)
+    try {
+      const [allergies]: any = await db.query(`
+        SELECT AllergyName as allergy, Severity
+        FROM patientallergy 
+        WHERE PatientID = ?
+      `, [patientId]);
+      patientData.allergies = allergies;
+    } catch (allergyError) {
+      console.warn('Could not fetch allergies:', allergyError);
+      patientData.allergies = [];
+    }
+    
+    // Try to get current medications
+    try {
+      const [medications]: any = await db.query(`
+        SELECT MedicationName as name, Dosage as dosage, Frequency as frequency, Status
+        FROM patientmedication 
+        WHERE PatientID = ? AND Status = 'active'
+      `, [patientId]);
+      patientData.currentMedications = medications;
+    } catch (medError) {
+      console.warn('Could not fetch medications:', medError);
+      patientData.currentMedications = [];
+    }
+    
+    // Try to get medical conditions
+    try {
+      const [conditions]: any = await db.query(`
+        SELECT ConditionName as condition, DiagnosedDate as diagnosed, Status as status
+        FROM medicalcondition 
+        WHERE PatientID = ?
+      `, [patientId]);
+      patientData.medicalHistory = conditions;
+    } catch (conditionError) {
+      console.warn('Could not fetch conditions:', conditionError);
+      patientData.medicalHistory = [];
+    }
+    
+    // Try to get recent visits
+    try {
+      const [visits]: any = await db.query(`
+        SELECT 
+          pv.VisitID,
+          pv.ArrivalTime as VisitDate,
+          pv.VisitType,
+          pv.VisitNotes,
+          pv.VisitStatus,
+          u.Name as doctor_name
+        FROM patient_visit pv
+        LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
+        WHERE pv.PatientID = ?
+        ORDER BY pv.ArrivalTime DESC
+        LIMIT 5
+      `, [patientId]);
+      patientData.recentVisits = visits;
+    } catch (visitError) {
+      console.warn('Could not fetch visits:', visitError);
+      patientData.recentVisits = [];
+    }
+    
+    console.log('Final patient data to send:', patientData);
     res.json(patientData);
   } catch (error) {
     console.error("Patient details error:", error);
-    res.status(500).json({ error: "Server error" });
+    
+    // More detailed error logging
+    if (error instanceof Error) {
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
+    
+    res.status(500).json({ 
+      error: "Server error",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 };
 
@@ -775,5 +826,203 @@ export const scheduleFollowUp = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Follow-up error:", error);
     res.status(500).json({ error: "Failed to schedule follow-up" });
+  }
+};
+
+// Add these new functions to doctorController.ts
+
+// Get patient vital signs
+export const getPatientVitals = async (req: Request, res: Response) => {
+  const { patientId } = req.params;
+  
+  try {
+    const [vitals]: any = await db.query(`
+      SELECT 
+        v.VitalSignID,
+        v.ConsultationID,
+        v.TakenBy,
+        v.TakenAt,
+        v.BloodPressureSystolic,
+        v.BloodPressureDiastolic,
+        v.HeartRate,
+        v.RespiratoryRate,
+        v.Temperature,
+        v.OxygenSaturation,
+        v.Height,
+        v.Weight,
+        v.BMI,
+        v.PainLevel,
+        v.Notes,
+        u.Name as TakenByName
+      FROM vital_signs v
+      LEFT JOIN useraccount u ON v.TakenBy = u.UserID
+      WHERE v.ConsultationID IN (
+        SELECT c.ConsultationID 
+        FROM consultation c
+        JOIN patient_visit pv ON c.VisitID = pv.VisitID
+        WHERE pv.PatientID = ?
+      )
+      ORDER BY v.TakenAt DESC
+      LIMIT 10
+    `, [patientId]);
+    
+    res.json(vitals);
+  } catch (error) {
+    console.error("Vitals fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch vital signs" });
+  }
+};
+
+// Save vital signs
+export const saveVitalSigns = async (req: Request, res: Response) => {
+  const {
+    patientId,
+    doctorId,
+    consultationId,
+    bloodPressureSystolic,
+    bloodPressureDiastolic,
+    temperature,
+    heartRate,
+    oxygenSaturation,
+    respiratoryRate,
+    height,
+    weight,
+    bmi,
+    painLevel,
+    notes
+  } = req.body;
+  
+  try {
+    // If no consultationId is provided, we need to get or create one
+    let finalConsultationId = consultationId;
+    
+    if (!finalConsultationId) {
+      // Get active consultation for this patient
+      const [activeConsultation]: any = await db.query(`
+        SELECT c.ConsultationID 
+        FROM consultation c
+        JOIN patient_visit pv ON c.VisitID = pv.VisitID
+        WHERE pv.PatientID = ? 
+          AND DATE(pv.ArrivalTime) = CURDATE()
+          AND pv.VisitStatus NOT IN ('completed', 'cancelled')
+        ORDER BY pv.ArrivalTime DESC
+        LIMIT 1
+      `, [patientId]);
+      
+      if (activeConsultation.length === 0) {
+        // Create a new patient_visit and consultation
+        const [newVisit]: any = await db.query(`
+          INSERT INTO patient_visit 
+          (PatientID, DoctorID, VisitType, ArrivalTime, CheckInTime, VisitStatus, QueueStatus, VisitNotes)
+          VALUES (?, ?, 'walk-in', NOW(), NOW(), 'checked-in', 'waiting', 'Vital signs recording')
+        `, [patientId, doctorId]);
+        
+        const [newConsultation]: any = await db.query(`
+          INSERT INTO consultation (VisitID, DoctorID)
+          VALUES (?, ?)
+        `, [newVisit.insertId, doctorId]);
+        
+        finalConsultationId = newConsultation.insertId;
+      } else {
+        finalConsultationId = activeConsultation[0].ConsultationID;
+      }
+    }
+    
+    // Save vital signs
+    const [result]: any = await db.query(`
+      INSERT INTO vital_signs 
+      (ConsultationID, TakenBy, TakenAt, BloodPressureSystolic, BloodPressureDiastolic, 
+       Temperature, HeartRate, OxygenSaturation, RespiratoryRate, Height, Weight, BMI, PainLevel, Notes)
+      VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      finalConsultationId,
+      doctorId,
+      bloodPressureSystolic,
+      bloodPressureDiastolic,
+      temperature,
+      heartRate,
+      oxygenSaturation,
+      respiratoryRate,
+      height,
+      weight,
+      bmi,
+      painLevel,
+      notes
+    ]);
+    
+    res.json({ 
+      success: true,
+      message: "Vital signs saved successfully",
+      vitalSignId: result.insertId
+    });
+  } catch (error) {
+    console.error("Save vitals error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to save vital signs" 
+    });
+  }
+};
+
+// Get active visit for patient
+export const getActiveVisit = async (req: Request, res: Response) => {
+  const { patientId } = req.params;
+  
+  try {
+    const [activeVisit]: any = await db.query(`
+      SELECT 
+        pv.VisitID,
+        c.ConsultationID
+      FROM patient_visit pv
+      LEFT JOIN consultation c ON pv.VisitID = c.VisitID
+      WHERE pv.PatientID = ? 
+        AND DATE(pv.ArrivalTime) = CURDATE()
+        AND pv.VisitStatus NOT IN ('completed', 'cancelled', 'no-show')
+      ORDER BY pv.ArrivalTime DESC
+      LIMIT 1
+    `, [patientId]);
+    
+    res.json(activeVisit[0] || {});
+  } catch (error) {
+    console.error("Active visit error:", error);
+    res.status(500).json({ error: "Failed to get active visit" });
+  }
+};
+
+// Create visit for vital signs recording
+export const createVisitForVitals = async (req: Request, res: Response) => {
+  const { patientId, doctorId, visitType = 'walk-in', visitNotes = 'Vital signs recording' } = req.body;
+  
+  try {
+    await db.query('START TRANSACTION');
+    
+    // Create patient_visit
+    const [visit]: any = await db.query(`
+      INSERT INTO patient_visit 
+      (PatientID, DoctorID, VisitType, ArrivalTime, CheckInTime, VisitStatus, QueueStatus, VisitNotes)
+      VALUES (?, ?, ?, NOW(), NOW(), 'checked-in', 'waiting', ?)
+    `, [patientId, doctorId, visitType, visitNotes]);
+    
+    // Create consultation
+    const [consultation]: any = await db.query(`
+      INSERT INTO consultation (VisitID, DoctorID)
+      VALUES (?, ?)
+    `, [visit.insertId, doctorId]);
+    
+    await db.query('COMMIT');
+    
+    res.json({ 
+      success: true,
+      message: "Visit created for vital signs recording",
+      visitId: visit.insertId,
+      consultationId: consultation.insertId
+    });
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error("Create visit error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to create visit" 
+    });
   }
 };

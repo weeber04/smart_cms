@@ -11,7 +11,13 @@ import {
   createPrescription,
   getRecentPrescriptions,
   claimPatient,
-  scheduleFollowUp
+  scheduleFollowUp,
+  getPatientVitals,
+  saveVitalSigns,
+  getActiveVisit,
+  createVisitForVitals
+  // Add these to your doctorRoutes.ts
+
 } from "../controllers/doctorController";
 import { verifyToken, requireRole } from "../middleware/authMiddleware";
 
@@ -40,5 +46,12 @@ router.get("/prescriptions/:doctorId", getRecentPrescriptions);
 // Follow-up
 router.post("/follow-up", scheduleFollowUp);
 router.post("/claim-patient", claimPatient);
+
+// Add these to your doctorRoutes.ts
+
+router.get('/patient/:patientId/vitals', getPatientVitals);
+router.post('/vital-signs', saveVitalSigns);
+router.get('/patient/:patientId/active-visit', getActiveVisit);
+router.post('/create-visit', createVisitForVitals);
 
 export default router;

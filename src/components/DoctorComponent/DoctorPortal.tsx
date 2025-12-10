@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Search, Bell, LogOut, Stethoscope, FileText, Calendar, Users, ClipboardList, User } from 'lucide-react';
+import { Activity, Search, Bell, LogOut, Stethoscope, FileText, Calendar, Users, ClipboardList, User, Heart } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -16,10 +16,10 @@ import { ConsultationTab } from './ConsultationTab';
 import { PatientQueue } from './PatientQueue';
 import { Prescription } from './Prescription';
 import { RecentMedicalRecords } from './RecentMedicalRecords';
-import { useAuth } from '../../contexts/AuthContext'; // ADD THIS IMPORT
+import { useAuth } from '../../contexts/AuthContext'; 
 
 export function DoctorPortal() { // REMOVE THE PROPS
-  const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'prescriptions'>('consultation');
+ const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'prescriptions' | 'vitals'>('consultation');
   const [doctorId, setDoctorId] = useState<number | null>(null);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
   const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
@@ -227,6 +227,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
               <FileText className="size-4 inline mr-2" />
               Prescriptions
             </button>
+
           </div>
 
           {activeTab === 'consultation' && (
