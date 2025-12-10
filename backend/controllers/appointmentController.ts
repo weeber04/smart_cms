@@ -1,18 +1,647 @@
-// controllers/appointmentController.ts
+// controllers/appointmentController.ts - UPDATED VERSION
 import { Request, Response } from "express";
 import { db } from "../db";
 
-// ============ APPOINTMENT MANAGEMENT ============
+// Time slots for availability checking
+const TIME_SLOTS = [
+  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
+  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
+  '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
+  '17:00', '17:30', '18:00'
+];
 
-// 1. Get today's appointments with visit status
+// ============ DOCTOR AVAILABILITY ============
+
+// In your appointmentController.ts - Update the time slot checking logic
+export const getDoctorAvailability = async (req: Request, res: Response) => {
+  const { doctorId, date } = req.query;
+  
+  try {
+    if (!doctorId || !date) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Missing doctor ID or date" 
+      });
+    }
+    
+    console.log('=== Doctor Availability Request ===');
+    console.log('Doctor ID:', doctorId, 'Date:', date);
+    
+    // Get all appointments for this doctor on the selected date
+    const [appointments]: any = await db.query(`
+      SELECT 
+        AppointmentID,
+        start_time,
+        end_time,
+        Status,
+        p.Name as patientName,
+        Purpose
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE DoctorID = ? 
+        AND DATE(AppointmentDateTime) = ?
+        AND Status NOT IN ('cancelled', 'no-show')
+      ORDER BY start_time ASC
+    `, [doctorId, date]);
+    
+    console.log(`Found ${appointments.length} appointments:`, appointments);
+    
+    // Simple approach: Mark any slot that starts during an appointment as unavailable
+    const availableSlots = TIME_SLOTS.filter(timeSlot => {
+      // For each time slot, check if it falls within any appointment
+      const isBooked = appointments.some((apt: any) => {
+        if (!apt.start_time || !apt.end_time) return false;
+        
+        const slotTime = timeSlot; // e.g., "09:00"
+        const startTime = apt.start_time; // e.g., "09:00:00" or "09:00"
+        const endTime = apt.end_time; // e.g., "09:30:00" or "09:30"
+        
+        // Normalize times by removing seconds if present
+        const normalizedSlot = slotTime.length === 5 ? slotTime : slotTime.substring(0, 5);
+        const normalizedStart = startTime.length === 8 ? startTime.substring(0, 5) : startTime;
+        const normalizedEnd = endTime.length === 8 ? endTime.substring(0, 5) : endTime;
+        
+        console.log(`Checking slot ${normalizedSlot} against appointment ${normalizedStart}-${normalizedEnd}`);
+        
+        // Slot is booked if it's exactly at the start time OR if it's between start and end
+        return normalizedSlot >= normalizedStart && normalizedSlot < normalizedEnd;
+      });
+      
+      return !isBooked;
+    });
+    
+    console.log('Available slots:', availableSlots);
+    console.log('Total TIME_SLOTS:', TIME_SLOTS.length);
+    console.log('Booked appointments:', appointments.length);
+    
+    // Format booked slots for display
+    const bookedSlots = appointments.map((apt: any) => ({
+      appointmentId: apt.AppointmentID,
+      start: apt.start_time?.substring(0, 5) || apt.start_time, // Format to HH:MM
+      end: apt.end_time?.substring(0, 5) || apt.end_time, // Format to HH:MM
+      status: apt.Status,
+      patientName: apt.patientName,
+      purpose: apt.Purpose
+    }));
+    
+    res.json({ 
+      success: true,
+      doctorId,
+      date,
+      bookedSlots,
+      availableSlots,
+      timeSlots: TIME_SLOTS
+    });
+    
+  } catch (error: any) {
+    console.error("Get doctor availability error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to get doctor availability"
+    });
+  }
+};
+
+// 2. Check specific time slot availability
+export const checkTimeSlotAvailability = async (req: Request, res: Response) => {
+  const { doctorId, date, startTime, endTime, appointmentId } = req.body;
+  
+  try {
+    if (!doctorId || !date || !startTime || !endTime) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Missing required fields" 
+      });
+    }
+    
+    // Check for scheduling conflicts (excluding the current appointment if editing)
+    let query = `
+      SELECT 
+        a.AppointmentID,
+        p.Name as patientName,
+        start_time,
+        end_time,
+        Status
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE DoctorID = ? 
+        AND DATE(AppointmentDateTime) = ?
+        AND Status NOT IN ('cancelled', 'no-show')
+        AND (
+          (start_time < ? AND end_time > ?) OR
+          (start_time >= ? AND start_time < ?) OR
+          (? >= start_time AND ? < end_time)
+        )
+    `;
+    
+    const params: any[] = [
+      doctorId,
+      date,
+      endTime, startTime,
+      startTime, endTime,
+      startTime, endTime
+    ];
+    
+    if (appointmentId) {
+      query += " AND AppointmentID != ?";
+      params.push(appointmentId);
+    }
+    
+    query += " LIMIT 1";
+    
+    const [conflicts]: any = await db.query(query, params);
+    
+    const isAvailable = conflicts.length === 0;
+    
+    res.json({ 
+      success: true,
+      isAvailable,
+      conflicts: conflicts.length > 0 ? conflicts[0] : null,
+      message: isAvailable ? "Time slot is available" : "Time slot is already booked"
+    });
+    
+  } catch (error: any) {
+    console.error("Check time slot availability error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to check time slot availability"
+    });
+  }
+};
+
+// ============ APPOINTMENT SCHEDULING WITH AVAILABILITY CHECK ============
+
+// 3. Schedule new appointment with availability check
+export const scheduleAppointment = async (req: Request, res: Response) => {
+  const { 
+    patientId, 
+    doctorId, 
+    appointmentDateTime, 
+    startTime, 
+    endTime, 
+    purpose, 
+    notes, 
+    createdBy 
+  } = req.body; 
+  
+  try {
+    if (!patientId || !doctorId || !appointmentDateTime || !purpose || !createdBy) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Missing required fields" 
+      });
+    }
+    
+    // Validate time range
+    if (!startTime || !endTime) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Start time and end time are required" 
+      });
+    }
+    
+    if (startTime >= endTime) {
+      return res.status(400).json({ 
+        success: false,
+        error: "End time must be after start time" 
+      });
+    }
+    
+    // Parse the date from appointmentDateTime
+    const appointmentDate = new Date(appointmentDateTime).toISOString().split('T')[0];
+    
+    await db.query("START TRANSACTION");
+    
+    // Enhanced conflict detection with detailed error message
+    const [conflicts]: any = await db.query(`
+      SELECT 
+        AppointmentID,
+        p.Name as patientName,
+        start_time,
+        end_time,
+        Status,
+        a.Purpose
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE DoctorID = ? 
+        AND DATE(AppointmentDateTime) = ?
+        AND Status NOT IN ('cancelled', 'no-show')
+        AND (
+          (start_time < ? AND end_time > ?) OR
+          (start_time >= ? AND start_time < ?) OR
+          (? >= start_time AND ? < end_time)
+        )
+      LIMIT 1
+    `, [
+      doctorId,
+      appointmentDate,
+      endTime, startTime,
+      startTime, endTime,
+      startTime, endTime
+    ]);
+    
+    if (conflicts.length > 0) {
+      const conflict = conflicts[0];
+      await db.query("ROLLBACK");
+      
+      // Calculate overlap details
+      const conflictStart = new Date(`1970-01-01T${conflict.start_time}`);
+      const conflictEnd = new Date(`1970-01-01T${conflict.end_time}`);
+      const requestedStart = new Date(`1970-01-01T${startTime}`);
+      const requestedEnd = new Date(`1970-01-01T${endTime}`);
+      
+      let overlapMessage = "Time slot overlaps with existing appointment";
+      
+      if (requestedStart >= conflictStart && requestedStart < conflictEnd) {
+        overlapMessage = `Starts during ${conflict.patientName}'s appointment (${conflict.start_time} - ${conflict.end_time})`;
+      } else if (requestedEnd > conflictStart && requestedEnd <= conflictEnd) {
+        overlapMessage = `Ends during ${conflict.patientName}'s appointment (${conflict.start_time} - ${conflict.end_time})`;
+      } else if (requestedStart <= conflictStart && requestedEnd >= conflictEnd) {
+        overlapMessage = `Completely overlaps ${conflict.patientName}'s appointment (${conflict.start_time} - ${conflict.end_time})`;
+      }
+      
+      return res.status(400).json({ 
+        success: false,
+        error: "Scheduling conflict detected",
+        conflictDetails: {
+          appointmentId: conflict.AppointmentID,
+          patientName: conflict.patientName,
+          bookedTime: `${conflict.start_time} - ${conflict.end_time}`,
+          status: conflict.Status,
+          purpose: conflict.Purpose,
+          overlapMessage
+        }
+      });
+    }
+    
+    // Check doctor's working hours (optional - you can customize this)
+    const startHour = parseInt(startTime.split(':')[0]);
+    if (startHour < 8 || startHour > 18) {
+      await db.query("ROLLBACK");
+      return res.status(400).json({ 
+        success: false,
+        error: "Appointments can only be scheduled between 08:00 and 18:00"
+      });
+    }
+    
+    // Insert the appointment
+    const [result]: any = await db.query(`
+      INSERT INTO appointment 
+      (PatientID, DoctorID, AppointmentDateTime, start_time, end_time, Purpose, Notes, Status, CreatedBy, UpdatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, NOW())
+    `, [
+      patientId,
+      doctorId,
+      appointmentDateTime,
+      startTime,
+      endTime,
+      purpose,
+      notes || '',
+      createdBy
+    ]);
+    
+    await db.query("COMMIT");
+    
+    // Get the newly created appointment details
+    const [newAppointment]: any = await db.query(`
+      SELECT 
+        a.*,
+        p.Name as patientName,
+        u.Name as doctorName
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON a.DoctorID = u.UserID
+      WHERE a.AppointmentID = ?
+    `, [result.insertId]);
+    
+    res.json({ 
+      success: true,
+      appointmentId: result.insertId,
+      message: "Appointment scheduled successfully",
+      appointment: newAppointment[0],
+      timeSlot: `${startTime} - ${endTime}`,
+      details: {
+        patientId,
+        doctorId,
+        date: appointmentDate,
+        startTime,
+        endTime
+      }
+    });
+    
+  } catch (error: any) {
+    await db.query("ROLLBACK");
+    console.error("Schedule appointment error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to schedule appointment",
+      details: error.message
+    });
+  }
+};
+
+// ============ UPDATE APPOINTMENT (FOR RESCHEDULING) ============
+
+// 5. Update appointment with availability check
+export const updateAppointment = async (req: Request, res: Response) => {
+  const { 
+    appointmentId,
+    patientId, 
+    doctorId, 
+    appointmentDateTime, 
+    startTime, 
+    endTime, 
+    duration, 
+    purpose, 
+    notes,
+    updatedBy 
+  } = req.body;
+  
+  try {
+    if (!appointmentId) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Appointment ID is required" 
+      });
+    }
+    
+    // Get current appointment details
+    const [currentAppointments]: any = await db.query(`
+      SELECT * FROM appointment WHERE AppointmentID = ?
+    `, [appointmentId]);
+    
+    if (currentAppointments.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Appointment not found" 
+      });
+    }
+    
+    const currentAppointment = currentAppointments[0];
+    
+    // Use provided values or current values
+    const updateDoctorId = doctorId || currentAppointment.DoctorID;
+    const updateAppointmentDateTime = appointmentDateTime || currentAppointment.AppointmentDateTime;
+    const updateStartTime = startTime || currentAppointment.start_time;
+    const updateEndTime = endTime || currentAppointment.end_time;
+    const updateDuration = duration || currentAppointment.duration;
+    const updatePurpose = purpose || currentAppointment.Purpose;
+    const updateNotes = notes !== undefined ? notes : currentAppointment.Notes;
+    
+    // Parse the date from appointmentDateTime
+    const appointmentDate = new Date(updateAppointmentDateTime).toISOString().split('T')[0];
+    
+    await db.query("START TRANSACTION");
+    
+    // Check for conflicts (excluding the current appointment)
+    const [conflicts]: any = await db.query(`
+      SELECT 
+        AppointmentID,
+        p.Name as patientName,
+        start_time,
+        end_time,
+        Status,
+        a.Purpose
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE DoctorID = ? 
+        AND DATE(AppointmentDateTime) = ?
+        AND AppointmentID != ?
+        AND Status NOT IN ('cancelled', 'no-show')
+        AND (
+          (start_time < ? AND end_time > ?) OR
+          (start_time >= ? AND start_time < ?) OR
+          (? >= start_time AND ? < end_time)
+        )
+      LIMIT 1
+    `, [
+      updateDoctorId,
+      appointmentDate,
+      appointmentId,
+      updateEndTime, updateStartTime,
+      updateStartTime, updateEndTime,
+      updateStartTime, updateEndTime
+    ]);
+    
+    if (conflicts.length > 0) {
+      const conflict = conflicts[0];
+      await db.query("ROLLBACK");
+      
+      return res.status(400).json({ 
+        success: false,
+        error: "Scheduling conflict detected",
+        conflictDetails: {
+          appointmentId: conflict.AppointmentID,
+          patientName: conflict.patientName,
+          bookedTime: `${conflict.start_time} - ${conflict.end_time}`,
+          status: conflict.Status
+        }
+      });
+    }
+    
+    // Update the appointment
+    await db.query(`
+      UPDATE appointment 
+      SET 
+        DoctorID = ?,
+        AppointmentDateTime = ?,
+        start_time = ?,
+        end_time = ?,
+        duration = ?,
+        Purpose = ?,
+        Notes = ?,
+        UpdatedAt = NOW(),
+        Status = CASE 
+          WHEN Status = 'cancelled' THEN 'scheduled'
+          ELSE Status 
+        END
+      WHERE AppointmentID = ?
+    `, [
+      updateDoctorId,
+      updateAppointmentDateTime,
+      updateStartTime,
+      updateEndTime,
+      updateDuration,
+      updatePurpose,
+      updateNotes,
+      appointmentId
+    ]);
+    
+    await db.query("COMMIT");
+    
+    res.json({ 
+      success: true,
+      message: "Appointment updated successfully",
+      appointmentId,
+      updatedFields: {
+        doctorId: updateDoctorId,
+        date: appointmentDate,
+        startTime: updateStartTime,
+        endTime: updateEndTime,
+        duration: updateDuration
+      }
+    });
+    
+  } catch (error: any) {
+    await db.query("ROLLBACK");
+    console.error("Update appointment error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to update appointment"
+    });
+  }
+};
+
+// ============ GET DOCTOR'S DAILY SCHEDULE ============
+
+// 6. Get doctor's full schedule for a day
+export const getDoctorDailySchedule = async (req: Request, res: Response) => {
+  const { doctorId, date } = req.query;
+  
+  try {
+    if (!doctorId || !date) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Missing doctor ID or date" 
+      });
+    }
+    
+    const [schedule]: any = await db.query(`
+      SELECT 
+        a.AppointmentID,
+        a.start_time,
+        a.end_time,
+        a.duration,
+        a.Status,
+        a.Purpose,
+        p.Name as patientName,
+        p.PhoneNumber,
+        p.ICNo,
+        a.Notes
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE a.DoctorID = ? 
+        AND DATE(a.AppointmentDateTime) = ?
+        AND a.Status NOT IN ('cancelled', 'no-show')
+      ORDER BY a.start_time ASC
+    `, [doctorId, date]);
+    
+    // Generate time slots for the day
+    const timeSlots = TIME_SLOTS.map(time => {
+      const slotAppointments = schedule.filter((apt: any) => {
+        const aptStart = new Date(`1970-01-01T${apt.start_time}`);
+        const aptEnd = new Date(`1970-01-01T${apt.end_time}`);
+        const slotTime = new Date(`1970-01-01T${time}`);
+        return slotTime >= aptStart && slotTime < aptEnd;
+      });
+      
+      return {
+        time,
+        available: slotAppointments.length === 0,
+        appointments: slotAppointments
+      };
+    });
+    
+    res.json({ 
+      success: true,
+      doctorId,
+      date,
+      schedule,
+      timeSlots,
+      totalAppointments: schedule.length,
+      availableSlots: timeSlots.filter(slot => slot.available).length
+    });
+    
+  } catch (error: any) {
+    console.error("Get doctor daily schedule error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to get doctor's daily schedule"
+    });
+  }
+};
+
+// ============ BULK AVAILABILITY CHECK ============
+
+// 7. Check multiple time slots at once
+export const checkBulkAvailability = async (req: Request, res: Response) => {
+  const { doctorId, date, timeSlots } = req.body;
+  
+  try {
+    if (!doctorId || !date || !timeSlots || !Array.isArray(timeSlots)) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Missing required fields or invalid timeSlots array" 
+      });
+    }
+    
+    // Get all appointments for the day
+    const [appointments]: any = await db.query(`
+      SELECT start_time, end_time, Status
+      FROM appointment 
+      WHERE DoctorID = ? 
+        AND DATE(AppointmentDateTime) = ?
+        AND Status NOT IN ('cancelled', 'no-show')
+    `, [doctorId, date]);
+    
+    // Check each time slot
+    const availabilityResults = timeSlots.map((slot: {start: string, end: string}) => {
+      const hasConflict = appointments.some((apt: any) => {
+        if (!apt.start_time || !apt.end_time) return false;
+        
+        const aptStart = new Date(`1970-01-01T${apt.start_time}`);
+        const aptEnd = new Date(`1970-01-01T${apt.end_time}`);
+        const slotStart = new Date(`1970-01-01T${slot.start}`);
+        const slotEnd = new Date(`1970-01-01T${slot.end}`);
+        
+        return (
+          (slotStart >= aptStart && slotStart < aptEnd) ||
+          (slotEnd > aptStart && slotEnd <= aptEnd) ||
+          (slotStart <= aptStart && slotEnd >= aptEnd)
+        );
+      });
+      
+      return {
+        ...slot,
+        available: !hasConflict,
+        message: hasConflict ? "Slot is booked" : "Slot is available"
+      };
+    });
+    
+    res.json({ 
+      success: true,
+      doctorId,
+      date,
+      results: availabilityResults,
+      totalChecked: timeSlots.length,
+      availableSlots: availabilityResults.filter((slot: any) => slot.available).length
+    });
+    
+  } catch (error: any) {
+    console.error("Check bulk availability error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to check bulk availability"
+    });
+  }
+};
+
+// The existing functions (checkInAppointment, markAppointmentLate, cancelAppointment, rescheduleAppointment) 
+// remain the same as in your original code...
+
+// 1. Get today's appointments with visit status - UPDATED
 export const getTodayAppointments = async (req: Request, res: Response) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     
+    // CORRECT QUERY: Only show appointments (NOT walk-ins)
+    // Walk-ins have NULL AppointmentID in patient_visit table
     const [appointments]: any = await db.query(`
       SELECT 
         a.AppointmentID,
         a.AppointmentDateTime,
+        a.start_time,
+        a.end_time,
         a.Purpose,
         a.Status as appointmentStatus,
         a.QueueNumber as appointmentQueueNumber,
@@ -39,8 +668,12 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
       LEFT JOIN patient_visit v ON a.AppointmentID = v.AppointmentID 
         AND v.VisitStatus NOT IN ('cancelled', 'no-show')
       WHERE DATE(a.AppointmentDateTime) = ?
-        AND a.Status != 'cancelled'
-      ORDER BY a.AppointmentDateTime ASC
+      ORDER BY 
+        a.start_time ASC,
+        CASE 
+          WHEN a.Status = 'cancelled' THEN 2
+          ELSE 1 
+        END
     `, [today]);
     
     // Format response
@@ -51,6 +684,16 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
       QueueNumber: apt.visitQueueNumber || apt.appointmentQueueNumber,
       status: apt.VisitID ? apt.VisitStatus : apt.appointmentStatus
     }));
+    
+    console.log(`Today's appointments (${formatted.length}):`, formatted.map((apt: any) => ({
+      id: apt.AppointmentID,
+      patient: apt.patientName,
+      appointmentTime: apt.AppointmentDateTime,
+      doctor: apt.doctorName,
+      doctorId: apt.DoctorID,
+      hasVisit: !!apt.VisitID,
+      status: apt.status
+    })));
     
     res.json({
       success: true,
@@ -66,7 +709,7 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
   }
 };
 
-// 2. Check-in appointment (creates patient_visit record)
+// 2. Check-in appointment (creates patient_visit record AND updates appointment queue)
 export const checkInAppointment = async (req: Request, res: Response) => {
   const { appointmentId, receptionistId } = req.body;
   
@@ -154,13 +797,16 @@ export const checkInAppointment = async (req: Request, res: Response) => {
     );
     const queuePosition = (maxPosition[0].maxPos || 0) + 1;
     
-    // Update appointment status to 'confirmed'
+    // ============ UPDATED: ALSO UPDATE APPOINTMENT TABLE ============
+    // Update appointment status to 'confirmed' AND set QueueNumber
     await db.query(`
       UPDATE appointment 
-      SET Status = 'confirmed',
-          UpdatedAt = NOW()
+      SET 
+        Status = 'confirmed',
+        QueueNumber = ?,  -- Add queue number to appointment table
+        UpdatedAt = NOW()
       WHERE AppointmentID = ?
-    `, [appointmentId]);
+    `, [queueNumber, appointmentId]);
     
     // Create patient_visit record
     const [visit]: any = await db.query(`

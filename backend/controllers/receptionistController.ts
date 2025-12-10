@@ -291,52 +291,29 @@ export const registerWalkIn = async (req: Request, res: Response) => {
     // In your receptionistController.ts - registerWalkIn function
 // Add priority parameter to the SQL query:
 // CORRECTED VERSION:
-const [result]: any = await db.query(
-  `INSERT INTO patient_visit (
-    PatientID, 
-    DoctorID, 
-    VisitType, 
-    ArrivalTime, 
-    CheckInTime,
-    VisitStatus, 
-    QueueStatus,
-    VisitNotes, 
-    QueueNumber,
-    QueuePosition,
-    TriagePriority
-  ) VALUES (?, ?, 'walk-in', NOW(), NOW(), 'checked-in', 'waiting', ?, ?, ?, ?)`,  // Fixed: removed extra parameters
-  [
-    patientId,
-    doctorId || null,
-    reason,           // This is VisitNotes
-    queueNumber,
-    queuePosition,
-    priority || 'low'  // This is TriagePriority
-  ]
-);
-
-    // Also create an appointment record for the walk-in
-    if (doctorId) {
-      await db.query(
-        `INSERT INTO appointment (
-          AppointmentDateTime,
-          Purpose,
-          Status,
-          PatientID,
-          DoctorID,
-          CreatedBy,
-          QueueNumber
-        ) VALUES (NOW(), ?, ?, ?, ?, ?, ?)`,
-        [
-          reason,
-          'confirmed',
-          patientId,
-          doctorId,
-          receptionistId,
-          queueNumber
-        ]
-      );
-    }
+    const [result]: any = await db.query(
+      `INSERT INTO patient_visit (
+        PatientID, 
+        DoctorID, 
+        VisitType, 
+        ArrivalTime, 
+        CheckInTime,
+        VisitStatus, 
+        QueueStatus,
+        VisitNotes, 
+        QueueNumber,
+        QueuePosition,
+        TriagePriority
+      ) VALUES (?, ?, 'walk-in', NOW(), NOW(), 'checked-in', 'waiting', ?, ?, ?, ?)`,
+      [
+        patientId,
+        doctorId || null,
+        reason,
+        queueNumber,
+        queuePosition,
+        priority || 'low'
+      ]
+    );
 
     res.json({
       success: true,

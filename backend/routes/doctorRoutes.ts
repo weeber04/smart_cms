@@ -24,7 +24,7 @@ router.use(requireRole('doctor'));
 // Doctor profile and data
 router.get("/profile/:doctorId", getDoctorProfile);
 router.get("/appointments/:doctorId", getTodayAppointments);
-router.get("/queue/:doctorId", getPatientQueue);  // THIS IS THE ROUTE TO USE
+router.get("/queue/:doctorId", getPatientQueue);  
 router.get("/queue-stats/:doctorId", getQueueStats);
 router.get("/patient/:patientId", getPatientDetails);
 

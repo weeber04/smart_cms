@@ -34,50 +34,56 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
   const [patientsWaiting, setPatientsWaiting] = useState<number>(0);
   const [assignedPatients, setAssignedPatients] = useState<PatientVisit[]>([]);
   const [unassignedPatients, setUnassignedPatients] = useState<PatientVisit[]>([]);
+
 // Add this function at the top of PatientQueue.tsx, after the imports
 const cn = (...classes: (string | boolean | undefined)[]) => 
   classes.filter(Boolean).join(' ');
 
+  // Add this fetch function outside useEffect so we can reuse it
+  const fetchQueueData = async () => {
+    if (!doctorId) return;
+    
+    try {
+      setLoading(true);
+      
+      // Get the token from localStorage
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        console.error('No authentication token found');
+        return;
+      }
+      
+      // Fetch patient queue (both assigned and unassigned)
+      const queueResponse = await fetch(`http://localhost:3001/api/doctor/queue/${doctorId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (queueResponse.ok) {
+        const queueData = await queueResponse.json();
+        console.log('Queue API Response:', queueData);
+        setAssignedPatients(queueData.assignedPatients || []);
+        setUnassignedPatients(queueData.unassignedPatients || []);
+        
+        // Update waiting count
+        const totalWaiting = (queueData.assignedPatients?.length || 0) + 
+                            (queueData.unassignedPatients?.length || 0);
+        setPatientsWaiting(totalWaiting);
+      } else {
+        console.error('Queue fetch failed:', queueResponse.status, await queueResponse.text());
+      }
+    } catch (error) {
+      console.error("Error fetching queue data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Fetch queue data
   useEffect(() => {
-  // In the fetchQueueData function:
-const fetchQueueData = async () => {
-  if (!doctorId) return;
-  
-  try {
-    setLoading(true);
-    
-    // Get the token from localStorage
-    const token = localStorage.getItem('token');
-    
-    if (!token) {
-      console.error('No authentication token found');
-      return;
-    }
-    
-    // Fetch patient queue (both assigned and unassigned)
-    const queueResponse = await fetch(`http://localhost:3001/api/doctor/queue/${doctorId}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (queueResponse.ok) {
-      const queueData = await queueResponse.json();
-      console.log('Queue API Response:', queueData);
-      setAssignedPatients(queueData.assignedPatients || []);
-      setUnassignedPatients(queueData.unassignedPatients || []);
-    } else {
-      console.error('Queue fetch failed:', queueResponse.status, await queueResponse.text());
-    }
-  } catch (error) {
-    console.error("Error fetching queue data:", error);
-  } finally {
-    setLoading(false);
-  }
-};
-
     fetchQueueData();
     // Refresh data every 30 seconds
     const interval = setInterval(fetchQueueData, 30000);
@@ -85,121 +91,177 @@ const fetchQueueData = async () => {
   }, [doctorId]);
 
   // Handle claiming an unassigned patient
-// Update handleClaimPatient
-const handleClaimPatient = async (visitId: number) => {
-  if (!doctorId) {
-    alert('Doctor not authenticated');
-    return;
-  }
-
-  setLoading(true);
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch("http://localhost:3001/api/doctor/claim-patient", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        visitId,
-        doctorId
-      })
-    });
-
-    const result = await response.json();
-
-    if (response.ok && result.success) {
-      alert('Patient claimed successfully! You can now call them.');
-      if (refreshData) refreshData();
-    } else {
-      alert(result.error || 'Failed to claim patient');
+  const handleClaimPatient = async (visitId: number) => {
+    if (!doctorId) {
+      alert('Doctor not authenticated');
+      return;
     }
-  } catch (error) {
-    console.error("Claim patient error:", error);
-    alert("Failed to claim patient. Please try again.");
-  } finally {
-    setLoading(false);
-  }
-};
 
-// Update handleCallPatient
-const handleCallPatient = async (visitId: number) => {
-  if (!doctorId) {
-    alert('Doctor not authenticated');
-    return;
-  }
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch("http://localhost:3001/api/doctor/claim-patient", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          visitId,
+          doctorId
+        })
+      });
 
-  setLoading(true);
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch("http://localhost:3001/api/doctor/visit-patient", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        visitId,
-        doctorId
-      })
-    });
+      const result = await response.json();
 
-    const result = await response.json();
-
-    if (response.ok && result.success) {
-      setSelectedPatientId(visitId);
-      alert('Patient called successfully! Patient status updated to in-consultation.');
-      if (refreshData) refreshData();
-    } else {
-      alert(result.error || 'Failed to call patient');
+      if (response.ok && result.success) {
+        alert('Patient claimed successfully! You can now call them.');
+        
+        // OPTIMISTIC UPDATE: Immediately update the UI
+        const patientToClaim = unassignedPatients.find(p => p.VisitID === visitId);
+        if (patientToClaim) {
+          const updatedPatient = {
+            ...patientToClaim,
+            DoctorID: doctorId,
+            assignedDoctorName: "You"
+          };
+          
+          // Move from unassigned to assigned
+          setUnassignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
+          setAssignedPatients(prev => [...prev, updatedPatient]);
+        }
+        
+        // Then sync with server (optional but good for consistency)
+        fetchQueueData();
+        
+      } else {
+        alert(result.error || 'Failed to claim patient');
+        // If failed, refresh from server to get correct state
+        fetchQueueData();
+      }
+    } catch (error) {
+      console.error("Claim patient error:", error);
+      alert("Failed to claim patient. Please try again.");
+      // If error, refresh from server
+      fetchQueueData();
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error("Call patient error:", error);
-    alert("Failed to call patient. Please try again.");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
-// Update handleCompleteVisit
-const handleCompleteVisit = async (visitId: number) => {
-  if (!doctorId) {
-    alert('Doctor not authenticated');
-    return;
-  }
-
-  setLoading(true);
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        visitId,
-        doctorId
-      })
-    });
-
-    const result = await response.json();
-
-    if (response.ok && result.success) {
-      setSelectedPatientId(null);
-      alert('Visit completed successfully!');
-      if (refreshData) refreshData();
-    } else {
-      alert(result.error || 'Failed to complete visit');
+  // Update handleCallPatient
+  const handleCallPatient = async (visitId: number) => {
+    if (!doctorId) {
+      alert('Doctor not authenticated');
+      return;
     }
-  } catch (error) {
-    console.error("Complete visit error:", error);
-    alert("Failed to complete visit. Please try again.");
-  } finally {
-    setLoading(false);
-  }
-};
+
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch("http://localhost:3001/api/doctor/visit-patient", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          visitId,
+          doctorId
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setSelectedPatientId(visitId);
+        alert('Patient called successfully! Patient status updated to in-consultation.');
+        
+        // OPTIMISTIC UPDATE: Immediately update the UI
+        const updatePatientStatus = (patients: PatientVisit[]) =>
+          patients.map(patient => 
+            patient.VisitID === visitId 
+              ? { 
+                  ...patient, 
+                  QueueStatus: 'in-progress' as const,
+                  VisitStatus: 'in-consultation' as const,
+                  CalledTime: new Date().toISOString()
+                }
+              : patient
+          );
+        
+        setAssignedPatients(updatePatientStatus);
+        setUnassignedPatients(updatePatientStatus);
+        
+        // Sync with server
+        fetchQueueData();
+        
+      } else {
+        alert(result.error || 'Failed to call patient');
+        // If failed, refresh from server
+        fetchQueueData();
+      }
+    } catch (error) {
+      console.error("Call patient error:", error);
+      alert("Failed to call patient. Please try again.");
+      // If error, refresh from server
+      fetchQueueData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update handleCompleteVisit
+  const handleCompleteVisit = async (visitId: number) => {
+    if (!doctorId) {
+      alert('Doctor not authenticated');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          visitId,
+          doctorId
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setSelectedPatientId(null);
+        alert('Visit completed successfully!');
+        
+        // OPTIMISTIC UPDATE: Immediately update the UI
+        setAssignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
+        setPatientsSeenToday(prev => prev + 1);
+        setPatientsWaiting(prev => Math.max(0, prev - 1));
+        
+        // Sync with server
+        fetchQueueData();
+        
+      } else {
+        alert(result.error || 'Failed to complete visit');
+        // If failed, refresh from server
+        fetchQueueData();
+      }
+    } catch (error) {
+      console.error("Complete visit error:", error);
+      alert("Failed to complete visit. Please try again.");
+      // If error, refresh from server
+      fetchQueueData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const calculateWaitTime = (arrivalTime: string) => {
     if (!arrivalTime) return 'Just arrived';
     

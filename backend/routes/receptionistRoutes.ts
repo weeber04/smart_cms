@@ -13,8 +13,6 @@ import {
   
   // Appointment Management
   getAppointments,
-  scheduleAppointment,
-  cancelAppointment,
   
   // Waiting List & Check-in
   getTodayVisits,
@@ -57,8 +55,7 @@ router.post('/walkin', registerWalkIn);
 
 // Appointment Management
 router.get('/appointments', getAppointments);
-router.post('/schedule-appointment', scheduleAppointment);
-router.post('/cancel-appointment', cancelAppointment);
+
 
 // Waiting List & Check-in
 router.get('/today-visits', getTodayVisits);

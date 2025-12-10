@@ -1,6 +1,6 @@
-// AppointmentSchedule.tsx - SIMPLIFIED VERSION
-import { useState, useEffect } from 'react';
-import { Calendar, Search, CheckCircle, Clock, AlertCircle, X, Pencil } from 'lucide-react';
+// AppointmentSchedule.tsx - FIXED SCROLLING VERSION
+import { useState, useEffect, useRef } from 'react';
+import { Calendar, Search, CheckCircle, Clock, AlertCircle, X, Pencil, Clock4, User, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -10,12 +10,21 @@ import { Textarea } from '../ui/textarea';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { ScrollArea } from '../ui/scroll-area';
 
 interface AppointmentScheduleProps {
   receptionistId: number | null;
   doctors: any[];
   refreshData: () => void;
 }
+
+// Time slots for dropdown (30-minute intervals)
+const TIME_SLOTS = [
+  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
+  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
+  '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
+  '17:00', '17:30', '18:00'
+];
 
 export function AppointmentSchedule({ receptionistId, doctors, refreshData }: AppointmentScheduleProps) {
   const [appointmentSuccess, setAppointmentSuccess] = useState(false);
@@ -24,6 +33,13 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
   const [selectedPatientName, setSelectedPatientName] = useState('');
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
+  const [currentTime, setCurrentTime] = useState<string>('');
+  
+  // Time states
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [duration, setDuration] = useState(30);
   
   // State for appointments
   const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
@@ -41,27 +57,198 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
   const [cancelReason, setCancelReason] = useState('');
   const [lateReason, setLateReason] = useState('');
 
+  // New states for availability
+  const [selectedDate, setSelectedDate] = useState('');
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [bookedSlots, setBookedSlots] = useState<any[]>([]);
+
+  // Update current time every minute
+  useEffect(() => {
+    const updateCurrentTime = () => {
+      const now = new Date();
+      const hours = now.getHours().toString().padStart(2, '0');
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      setCurrentTime(`${hours}:${minutes}`);
+    };
+
+    updateCurrentTime();
+    const interval = setInterval(updateCurrentTime, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate end time when start time or duration changes
+  useEffect(() => {
+    if (startTime) {
+      const calculateEndTime = () => {
+        const [hours, minutes] = startTime.split(':').map(Number);
+        const totalMinutes = hours * 60 + minutes + duration;
+        
+        const endHours = Math.floor(totalMinutes / 60);
+        const endMinutes = totalMinutes % 60;
+        
+        const formattedEndTime = 
+          `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+        
+        setEndTime(formattedEndTime);
+      };
+      
+      calculateEndTime();
+    }
+  }, [startTime, duration]);
+
+  // Fetch doctor availability when doctor or date changes
+  useEffect(() => {
+    if (selectedDoctorId && selectedDate) {
+      fetchDoctorAvailability();
+    } else {
+      setAvailableSlots(TIME_SLOTS);
+      setBookedSlots([]);
+    }
+  }, [selectedDoctorId, selectedDate]);
+
   // Fetch today's appointments on component mount
   useEffect(() => {
     fetchTodayAppointments();
   }, []);
 
-  const fetchTodayAppointments = async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('http://localhost:3001/api/appointments/today');
-      const result = await response.json();
+  // Check if a time slot is in the past
+  const isPastTime = (time: string) => {
+    if (!selectedDate) return false;
+    
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    
+    // If selected date is today, check if time is past
+    if (selectedDate === today) {
+      if (!currentTime) return false;
       
-      if (result.success) {
-        setTodayAppointments(result.appointments || []);
+      const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
+      const [slotHours, slotMinutes] = time.split(':').map(Number);
+      
+      const currentTotalMinutes = currentHours * 60 + currentMinutes;
+      const slotTotalMinutes = slotHours * 60 + slotMinutes;
+      
+      // Add buffer of 15 minutes (allows booking slots that start within the next 15 minutes)
+      const bufferMinutes = 15;
+      
+      return slotTotalMinutes < (currentTotalMinutes - bufferMinutes);
+    }
+    
+    return false;
+  };
+
+  // Check if a time slot is available (not booked and not past)
+  const isSlotAvailable = (time: string) => {
+    if (!selectedDoctorId || !selectedDate) return true;
+    
+    // Check if time is in the past (only for today's date)
+    if (isPastTime(time)) {
+      return false;
+    }
+    
+    return availableSlots.includes(time);
+  };
+
+  // Get filtered time slots based on current time
+  const getFilteredTimeSlots = () => {
+    if (!selectedDate) return TIME_SLOTS;
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    // If not today, show all slots
+    if (selectedDate !== today) {
+      return TIME_SLOTS;
+    }
+    
+    // If today, filter out past times with buffer
+    if (!currentTime) return TIME_SLOTS;
+    
+    const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
+    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+    const bufferMinutes = 15; // Buffer to allow booking slots starting soon
+    
+    return TIME_SLOTS.filter(time => {
+      const [slotHours, slotMinutes] = time.split(':').map(Number);
+      const slotTotalMinutes = slotHours * 60 + slotMinutes;
+      
+      return slotTotalMinutes >= (currentTotalMinutes - bufferMinutes);
+    });
+  };
+
+const fetchTodayAppointments = async () => {
+  setIsLoading(true);
+  try {
+    const response = await fetch('http://localhost:3001/api/appointments/today');
+    const result = await response.json();
+    
+    console.log('=== TODAY APPOINTMENTS API RESPONSE ===');
+    console.log('Total appointments returned:', result.appointments?.length);
+    console.log('Appointment details:', result.appointments?.map((apt: any) => ({
+      AppointmentID: apt.AppointmentID,
+      patientName: apt.patientName,
+      AppointmentDateTime: apt.AppointmentDateTime,
+      DoctorID: apt.DoctorID,
+      doctorName: apt.doctorName,
+      status: apt.status,
+      hasVisit: !!apt.VisitID,
+      VisitType: apt.VisitType  // Check if this exists
+    })));
+    
+    if (result.success) {
+      setTodayAppointments(result.appointments || []);
+    } else {
+      console.error('Failed to fetch appointments:', result.error);
+    }
+  } catch (error) {
+    console.error('Error fetching appointments:', error);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+  const fetchDoctorAvailability = async () => {
+    if (!selectedDoctorId || !selectedDate) return;
+    
+    setLoadingAvailability(true);
+    try {
+      const response = await fetch(
+        `http://localhost:3001/api/appointments/doctor-availability?doctorId=${selectedDoctorId}&date=${selectedDate}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success) {
+          const processedBookedSlots = data.bookedSlots?.map((slot: any) => ({
+            ...slot,
+            start: slot.start ? formatTime(slot.start) : '--:--',
+            end: slot.end ? formatTime(slot.end) : '--:--'
+          })) || [];
+          
+          setAvailableSlots(data.availableSlots || []);
+          setBookedSlots(processedBookedSlots);
+        }
       } else {
-        console.error('Failed to fetch appointments:', result.error);
+        console.error('Failed to fetch availability:', response.status);
       }
     } catch (error) {
-      console.error('Error fetching appointments:', error);
+      console.error("Fetch availability error:", error);
+      setAvailableSlots(TIME_SLOTS);
     } finally {
-      setIsLoading(false);
+      setLoadingAvailability(false);
     }
+  };
+
+  const formatTime = (timeString: string): string => {
+    if (!timeString) return '--:--';
+    
+    const time = timeString.split(':');
+    if (time.length >= 2) {
+      return `${time[0]}:${time[1]}`;
+    }
+    return timeString;
   };
 
   const handlePatientSearch = async (searchTerm: string) => {
@@ -91,6 +278,64 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
     setSearchResults([]);
   };
 
+  const handleDateChange = (date: string) => {
+    setSelectedDate(date);
+    setStartTime('');
+    setEndTime('');
+  };
+
+  const handleDoctorChange = (doctorId: string) => {
+    setSelectedDoctorId(doctorId);
+    setStartTime('');
+    setEndTime('');
+  };
+
+  const getSlotStatus = (time: string) => {
+    const bookedSlot = bookedSlots.find(slot => {
+      if (slot.start && slot.end) {
+        const startTime = new Date(`1970-01-01T${slot.start}`);
+        const endTime = new Date(`1970-01-01T${slot.end}`);
+        const checkTime = new Date(`1970-01-01T${time}`);
+        return checkTime >= startTime && checkTime < endTime;
+      }
+      return false;
+    });
+    
+    if (isPastTime(time)) {
+      return 'Past time (unavailable)';
+    }
+    
+    return bookedSlot ? `Booked (${bookedSlot.status})` : 'Available';
+  };
+
+  const isTimeRangeAvailable = (start: string, end: string) => {
+    if (!selectedDoctorId || !selectedDate || !start || !end) return true;
+    
+    // Check if start time is in the past
+    if (isPastTime(start)) {
+      return false;
+    }
+    
+    const startTimeObj = new Date(`1970-01-01T${start}`);
+    const endTimeObj = new Date(`1970-01-01T${end}`);
+    
+    const hasConflict = bookedSlots.some(slot => {
+      if (slot.start && slot.end) {
+        const slotStart = new Date(`1970-01-01T${slot.start}`);
+        const slotEnd = new Date(`1970-01-01T${slot.end}`);
+        
+        return (
+          (startTimeObj >= slotStart && startTimeObj < slotEnd) ||
+          (endTimeObj > slotStart && endTimeObj <= slotEnd) ||
+          (startTimeObj <= slotStart && endTimeObj >= slotEnd)
+        );
+      }
+      return false;
+    });
+    
+    return !hasConflict;
+  };
+
   const handleScheduleAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -106,30 +351,39 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
       return;
     }
 
+    if (!isTimeRangeAvailable(startTime, endTime)) {
+      alert("This time slot is already booked or unavailable. Please choose a different time.");
+      return;
+    }
+
     try {
       const formData = new FormData(e.target as HTMLFormElement);
       const date = formData.get('date');
-      const time = formData.get('time');
+      const startTime = formData.get('startTime');
+      const endTime = formData.get('endTime');
       const reason = formData.get('reason');
       const notes = formData.get('notes') || '';
+      const appointmentDuration = formData.get('duration');
       
-      if (!date || !time || !reason) {
-        alert("Please fill in all required fields: date, time, and reason");
+      if (!date || !startTime || !endTime || !reason) {
+        alert("Please fill in all required fields: date, start time, end time, and reason");
         return;
       }
       
-      const appointmentDateTime = `${date}T${time}:00`;
+      const appointmentDateTime = `${date}T${startTime}:00`;
       
       const appointmentData = {
         patientId: selectedPatientId,
         doctorId: selectedDoctorId,
         appointmentDateTime: appointmentDateTime,
+        startTime: startTime,
+        endTime: endTime,
         purpose: reason,
         notes: notes,
         createdBy: receptionistId
       };
 
-      const response = await fetch("http://localhost:3001/api/receptionist/schedule-appointment", {
+      const response = await fetch("http://localhost:3001/api/appointments/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(appointmentData)
@@ -140,16 +394,20 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
       if (response.ok && result.success === true) {
         setAppointmentSuccess(true);
         
-        // Reset form and selections
         (e.target as HTMLFormElement).reset();
         setSelectedPatientId(null);
         setPatientSearch('');
         setSelectedPatientName('');
         setSelectedDoctorId('');
+        setSelectedDate('');
+        setStartTime('');
+        setEndTime('');
+        setDuration(30);
+        setAvailableSlots(TIME_SLOTS);
+        setBookedSlots([]);
         
-        // Refresh appointments list
         fetchTodayAppointments();
-        refreshData(); // Refresh dashboard stats
+        refreshData();
         
         setTimeout(() => setAppointmentSuccess(false), 3000);
         
@@ -190,11 +448,9 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
         setCheckInMessage(`Patient checked in. Queue Number: ${result.queueNumber}`);
         setCheckInSuccess(true);
         
-        // Refresh data
         fetchTodayAppointments();
         refreshData();
         
-        // Auto close success message after 3 seconds
         setTimeout(() => {
           setCheckInSuccess(false);
           setCheckInMessage('');
@@ -233,7 +489,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
         setLateReason('');
         setSelectedAppointment(null);
         
-        // Refresh data
         fetchTodayAppointments();
         refreshData();
         
@@ -271,7 +526,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
         setCancelReason('');
         setSelectedAppointment(null);
         
-        // Refresh data
         fetchTodayAppointments();
         refreshData();
         
@@ -343,7 +597,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
     const appointmentTime = new Date(appointment.AppointmentDateTime);
     const isPastAppointment = appointmentTime < now;
 
-    // If already checked in or in consultation
     if (status === 'checked-in' || status === 'waiting' || status === 'in-consultation') {
       return (
         <Badge className="bg-green-100 text-green-800 text-xs">
@@ -352,7 +605,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
       );
     }
 
-    // If completed or cancelled
     if (status === 'completed' || status === 'cancelled' || status === 'no-show') {
       return (
         <Badge variant="outline" className="text-xs">
@@ -361,7 +613,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
       );
     }
 
-    // If scheduled appointment (can check in)
     if (status === 'scheduled') {
       return (
         <div className="flex gap-2">
@@ -419,6 +670,155 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
     return null;
   };
 
+  const renderAppointmentTime = (appointment: any) => {
+    if (appointment.startTime && appointment.endTime) {
+      return (
+        <div className="flex flex-col">
+          <span className="font-medium">
+            {appointment.startTime} - {appointment.endTime}
+          </span>
+          {appointment.duration && (
+            <span className="text-xs text-gray-500">
+              Duration: {appointment.duration} min
+            </span>
+          )}
+        </div>
+      );
+    }
+    
+    return (
+      <div className="flex flex-col">
+        <span className="font-medium">
+          {appointment.time || 'No time set'}
+        </span>
+        {appointment.VisitID && (
+          <span className="text-xs text-gray-500">
+            Checked in: {new Date(appointment.CheckInTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  // Custom Time Slot Selector Component for better scrolling control
+  const TimeSlotSelector = () => (
+    <Select 
+      required 
+      name="startTime"
+      value={startTime}
+      onValueChange={setStartTime}
+      disabled={!selectedDoctorId || !selectedDate}
+    >
+      <SelectTrigger id="startTime" className={!isSlotAvailable(startTime) && startTime ? 'border-red-300 bg-red-50' : ''}>
+        <SelectValue placeholder="Select start time">
+          {startTime && (
+            <>
+              <Clock4 className="size-4 mr-2 inline" />
+              {startTime}
+              {!isSlotAvailable(startTime) && (
+                <span className="ml-2 text-xs text-red-600">
+                  {isPastTime(startTime) ? '(Past time)' : '(Not Available)'}
+                </span>
+              )}
+            </>
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent className="p-0">
+        <div className="px-2 py-1.5 text-xs text-gray-500 border-b sticky top-0 bg-white z-10">
+          {selectedDoctorId && selectedDate ? (
+            <div className="flex justify-between items-center">
+              <span>Available time slots for {selectedDate}</span>
+              {currentTime && selectedDate === new Date().toISOString().split('T')[0] && (
+                <span className="text-blue-600 font-medium">
+                  Current time: {currentTime}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span>Select doctor and date first</span>
+          )}
+        </div>
+        
+        {/* Scrollable container for time slots */}
+        <div className="max-h-[300px] overflow-y-auto">
+          {getFilteredTimeSlots().map((time) => {
+            const available = isSlotAvailable(time);
+            const pastTime = isPastTime(time);
+            const status = getSlotStatus(time);
+            
+            const bookingAppointment = bookedSlots.find(slot => {
+              if (slot.start && slot.end) {
+                const startTime = new Date(`1970-01-01T${slot.start}:00`);
+                const endTime = new Date(`1970-01-01T${slot.end}:00`);
+                const checkTime = new Date(`1970-01-01T${time}:00`);
+                return checkTime >= startTime && checkTime < endTime;
+              }
+              return false;
+            });
+            
+            let unavailableReason = '';
+            if (!available) {
+              if (pastTime) {
+                unavailableReason = 'Past time (unavailable)';
+              } else if (bookingAppointment) {
+                unavailableReason = `Booked by ${bookingAppointment.patientName}`;
+              } else {
+                unavailableReason = 'Not available';
+              }
+            }
+            
+            return (
+              <SelectItem 
+                key={time} 
+                value={time}
+                disabled={!available}
+                className={`
+                  ${!available ? 'text-gray-400 bg-gray-50 cursor-not-allowed' : 'cursor-pointer'}
+                  ${time === startTime ? 'bg-blue-50' : ''}
+                  ${pastTime ? 'line-through' : ''}
+                `}
+              >
+                <div className="flex items-center justify-between w-full py-1">
+                  <div className="flex flex-col">
+                    <span>{time}</span>
+                    {!available && (
+                      <span className="text-xs text-gray-500">
+                        {unavailableReason}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center">
+                    {!available ? (
+                      <>
+                        {pastTime ? (
+                          <>
+                            <Clock className="size-3 text-gray-500 mr-1" />
+                            <span className="text-xs text-gray-600">Past</span>
+                          </>
+                        ) : (
+                          <>
+                            <X className="size-3 text-red-500 mr-1" />
+                            <span className="text-xs text-red-600">Booked</span>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="size-3 text-green-500 mr-1" />
+                        <span className="text-xs text-green-600">Available</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </SelectItem>
+            );
+          })}
+        </div>
+      </SelectContent>
+    </Select>
+  );
+
   return (
     <div className="grid lg:grid-cols-2 gap-6">
       {/* Left Column: Schedule New Appointment */}
@@ -447,7 +847,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
                 />
               </div>
               
-              {/* Search Results Dropdown */}
               {searchResults.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   {searchResults.map((patient) => (
@@ -465,7 +864,6 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
                 </div>
               )}
               
-              {/* Selected Patient Display */}
               {selectedPatientId && (
                 <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded">
                   <div className="text-sm text-green-800">
@@ -475,13 +873,14 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
               )}
             </div>
 
+            {/* Doctor Selector */}
             <div className="space-y-2">
               <Label htmlFor="doctor">Doctor *</Label>
               <Select 
                 required 
                 name="doctor"
                 value={selectedDoctorId}
-                onValueChange={setSelectedDoctorId}
+                onValueChange={handleDoctorChange}
               >
                 <SelectTrigger id="doctor">
                   <SelectValue placeholder="Select doctor" />
@@ -492,7 +891,13 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
                       key={doctor.id} 
                       value={String(doctor.id)}
                     >
-                      {doctor.Name} - {doctor.Specialization || 'General'}
+                      <div className="flex items-center">
+                        <User className="size-4 mr-2 text-gray-500" />
+                        <div>
+                          <div className="font-medium">{doctor.Name}</div>
+                          <div className="text-xs text-gray-500">{doctor.Specialization || 'General'}</div>
+                        </div>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -500,6 +905,7 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
             </div>
 
             <div className="grid grid-cols-2 gap-4">
+              {/* Date Selector */}
               <div className="space-y-2">
                 <Label htmlFor="date">Date *</Label>
                 <Input 
@@ -508,18 +914,220 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
                   type="date" 
                   required 
                   min={new Date().toISOString().split('T')[0]}
+                  value={selectedDate}
+                  onChange={(e) => handleDateChange(e.target.value)}
                 />
               </div>
+              
+              {/* Duration Selector */}
               <div className="space-y-2">
-                <Label htmlFor="time">Time *</Label>
-                <Input 
-                  id="time" 
-                  name="time"
-                  type="time" 
-                  required 
-                />
+                <Label htmlFor="duration">Duration (min) *</Label>
+                <Select 
+                  required
+                  name="duration"
+                  value={String(duration)}
+                  onValueChange={(value) => setDuration(Number(value))}
+                >
+                  <SelectTrigger id="duration">
+                    <SelectValue placeholder="Select duration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                    <SelectItem value="45">45 minutes</SelectItem>
+                    <SelectItem value="60">60 minutes</SelectItem>
+                    <SelectItem value="90">90 minutes</SelectItem>
+                    <SelectItem value="120">120 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Start Time Selector - Using custom component */}
+              <div className="space-y-2">
+                <Label htmlFor="startTime">Start Time *</Label>
+                {loadingAvailability ? (
+                  <div className="flex items-center justify-center h-10 border rounded-md">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 mr-2"></div>
+                    <span className="text-sm text-gray-500">Checking availability...</span>
+                  </div>
+                ) : (
+                  <TimeSlotSelector />
+                )}
+                
+                {!selectedDoctorId && (
+                  <p className="text-xs text-gray-500">Select a doctor to see available time slots</p>
+                )}
+                {selectedDoctorId && !selectedDate && (
+                  <p className="text-xs text-gray-500">Select a date to see available time slots</p>
+                )}
+                
+                {startTime && !isSlotAvailable(startTime) && (
+                  <div className="p-2 bg-red-50 border border-red-200 rounded text-sm">
+                    <AlertCircle className="size-4 inline mr-1 text-red-500" />
+                    <span className="text-red-600 font-medium">
+                      {isPastTime(startTime) ? 'This time is in the past' : 'This time slot is not available'}
+                    </span>
+                    <p className="text-red-500 text-xs mt-1">{getSlotStatus(startTime)}</p>
+                  </div>
+                )}
+              </div>
+              
+              {/* End Time Input */}
+              <div className="space-y-2">
+                <Label htmlFor="endTime">End Time *</Label>
+                <Input 
+                  id="endTime" 
+                  name="endTime"
+                  type="time" 
+                  required 
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  disabled={!startTime}
+                  className={!isTimeRangeAvailable(startTime, endTime) ? 'border-red-300 bg-red-50' : ''}
+                  step="300"
+                />
+                {startTime && !endTime && (
+                  <p className="text-xs text-gray-500">Calculated based on duration</p>
+                )}
+                {endTime && !isTimeRangeAvailable(startTime, endTime) && (
+                  <p className="text-xs text-red-600">
+                    {isPastTime(startTime) ? 'Cannot book past times' : 'This time range conflicts with existing appointments'}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Show doctor's schedule for the day */}
+            {selectedDoctorId && selectedDate && (
+              <div className="p-3 bg-gray-50 rounded-lg border">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setScheduleExpanded(!scheduleExpanded)}
+                      className="p-1 h-7"
+                    >
+                      {scheduleExpanded ? (
+                        <ChevronUp className="size-4 mr-1" />
+                      ) : (
+                        <ChevronDown className="size-4 mr-1" />
+                      )}
+                      <h4 className="text-sm font-medium">Doctor's Schedule for {selectedDate}</h4>
+                    </Button>
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      {bookedSlots.length} booked
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      type="button"
+                      onClick={fetchDoctorAvailability}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+                      title="Refresh availability"
+                    >
+                      <RefreshCw className="size-3 mr-1" />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+                
+                {scheduleExpanded && (
+                  <ScrollArea className="h-64">
+                    <div className="pr-4">
+                      {bookedSlots.length > 0 ? (
+                        <div className="space-y-3 mt-2">
+                          <div className="text-xs font-medium text-gray-700">Booked Appointments:</div>
+                          <div className="space-y-2">
+                            {bookedSlots.map((slot, index) => {
+                              let durationMinutes = 30;
+                              if (slot.start && slot.end) {
+                                try {
+                                  const startParts = slot.start.split(':').map(Number);
+                                  const endParts = slot.end.split(':').map(Number);
+                                  
+                                  if (startParts.length >= 2 && endParts.length >= 2) {
+                                    const startMinutes = startParts[0] * 60 + startParts[1];
+                                    const endMinutes = endParts[0] * 60 + endParts[1];
+                                    durationMinutes = endMinutes - startMinutes;
+                                  }
+                                } catch (error) {
+                                  console.error('Error calculating duration:', error);
+                                  durationMinutes = 30;
+                                }
+                              }
+                              
+                              return (
+                                <div 
+                                  key={index}
+                                  className="p-3 bg-white border border-gray-200 rounded text-sm hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                      <div className="font-medium text-gray-900">
+                                        {slot.start} - {slot.end}
+                                        <span className="ml-2 text-xs text-gray-500">
+                                          ({durationMinutes} min)
+                                        </span>
+                                      </div>
+                                      <div className="text-sm font-semibold text-gray-900 mt-1">
+                                        {slot.patientName}
+                                      </div>
+                                    </div>
+                                    <Badge 
+                                      variant="outline" 
+                                      className={`
+                                        text-xs
+                                        ${slot.status === 'scheduled' ? 'bg-blue-50 text-blue-700 border-blue-200' : ''}
+                                        ${slot.status === 'confirmed' ? 'bg-green-50 text-green-700 border-green-200' : ''}
+                                        ${slot.status === 'completed' ? 'bg-gray-50 text-gray-700 border-gray-200' : ''}
+                                        ${slot.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200' : ''}
+                                      `}
+                                    >
+                                      {slot.status}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-2">
+                                    <div className="font-medium mb-1">Purpose:</div>
+                                    <div className="text-gray-500">{slot.purpose || 'No purpose specified'}</div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-4">
+                          <Calendar className="size-8 text-gray-300 mx-auto mb-2" />
+                          <p className="text-sm text-gray-600">No appointments booked for {selectedDate}</p>
+                          <p className="text-xs text-gray-500 mt-1">All time slots are available</p>
+                        </div>
+                      )}
+                      
+                      <div className="mt-4 pt-3 border-t border-gray-200">
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="text-center p-2 bg-green-50 rounded border border-green-200">
+                            <div className="font-bold text-green-700">{availableSlots.length}</div>
+                            <div className="text-green-600">Available</div>
+                          </div>
+                          <div className="text-center p-2 bg-red-50 rounded border border-red-200">
+                            <div className="font-bold text-red-700">{bookedSlots.length}</div>
+                            <div className="text-red-600">Booked</div>
+                          </div>
+                          <div className="text-center p-2 bg-blue-50 rounded border border-blue-200">
+                            <div className="font-bold text-blue-700">{TIME_SLOTS.length}</div>
+                            <div className="text-blue-600">Total</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="reason">Reason for Visit *</Label>
@@ -544,7 +1152,7 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
             <Button 
               type="submit" 
               className="w-full bg-orange-600 hover:bg-orange-700"
-              disabled={!selectedPatientId}
+              disabled={!selectedPatientId || !startTime || !endTime || !isTimeRangeAvailable(startTime, endTime)}
             >
               <Calendar className="size-4 mr-2" />
               Schedule Appointment
@@ -554,8 +1162,8 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
       </Card>
 
       {/* Right Column: Today's Appointments */}
-      <Card>
-        <CardHeader>
+      <Card className="flex flex-col h-full">
+        <CardHeader className="shrink-0">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Today's Appointments</CardTitle>
@@ -581,9 +1189,9 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex-1 overflow-hidden p-0">
           {checkInSuccess && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <div className="m-4 p-3 bg-green-50 border border-green-200 rounded-md">
               <div className="flex items-center">
                 <CheckCircle className="size-5 text-green-600 mr-2" />
                 <p className="text-green-800 font-medium">{checkInMessage}</p>
@@ -592,68 +1200,63 @@ export function AppointmentSchedule({ receptionistId, doctors, refreshData }: Ap
           )}
 
           {isLoading ? (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto"></div>
-              <p className="text-gray-500 mt-2">Loading appointments...</p>
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto"></div>
+                <p className="text-gray-500 mt-2">Loading appointments...</p>
+              </div>
             </div>
           ) : (
-            <div className="rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Patient</TableHead>
-                    <TableHead>Doctor</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            <div className="h-full flex flex-col">
+              <ScrollArea className="flex-1">
+                <div className="p-4">
                   {todayAppointments.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
-                        <Calendar className="size-12 mx-auto mb-3 text-gray-300" />
-                        <p>No appointments scheduled for today</p>
-                        <p className="text-sm mt-2">Schedule new appointments above</p>
-                      </TableCell>
-                    </TableRow>
+                    <div className="text-center py-8 text-gray-500">
+                      <Calendar className="size-12 mx-auto mb-3 text-gray-300" />
+                      <p>No appointments scheduled for today</p>
+                      <p className="text-sm mt-2">Schedule new appointments above</p>
+                    </div>
                   ) : (
-                    todayAppointments.map((appointment) => (
-                      <TableRow key={appointment.AppointmentID}>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-medium">
-                              {appointment.time || 'No time set'}
-                            </span>
-                            {appointment.VisitID && (
-                              <span className="text-xs text-gray-500">
-                                Checked in: {new Date(appointment.CheckInTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm font-medium">
-                          {appointment.patientName}
-                          {appointment.QueueNumber && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              Queue: {appointment.QueueNumber}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {appointment.doctorName || 'No doctor assigned'}
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(appointment)}
-                        </TableCell>
-                        <TableCell>
-                          {getActionButtons(appointment)}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Time Slot</TableHead>
+                          <TableHead>Patient</TableHead>
+                          <TableHead>Doctor</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {todayAppointments.map((appointment) => (
+                          <TableRow key={appointment.AppointmentID}>
+                            <TableCell>
+                              {renderAppointmentTime(appointment)}
+                            </TableCell>
+                            <TableCell className="text-sm font-medium">
+                              {appointment.patientName}
+                              {appointment.QueueNumber && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Queue: {appointment.QueueNumber}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {appointment.doctorName || 'No doctor assigned'}
+                            </TableCell>
+                            <TableCell>
+                              {getStatusBadge(appointment)}
+                            </TableCell>
+                            <TableCell>
+                              {getActionButtons(appointment)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   )}
-                </TableBody>
-              </Table>
+                </div>
+              </ScrollArea>
             </div>
           )}
         </CardContent>
