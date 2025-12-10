@@ -15,7 +15,9 @@ import {
   getPatientVitals,
   saveVitalSigns,
   getActiveVisit,
-  createVisitForVitals
+  createVisitForVitals,
+    getTodayAppointmentsWithVisits,
+  getTodayScheduledAppointments
   // Add these to your doctorRoutes.ts
 
 } from "../controllers/doctorController";
@@ -26,6 +28,9 @@ const router = express.Router();
 // Apply authentication middleware to ALL doctor routes
 router.use(verifyToken);
 router.use(requireRole('doctor'));
+
+router.get("/appointments-with-visits/:doctorId", getTodayAppointmentsWithVisits);
+router.get("/appointments-scheduled/:doctorId", getTodayScheduledAppointments);
 
 // Doctor profile and data
 router.get("/profile/:doctorId", getDoctorProfile);

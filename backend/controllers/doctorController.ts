@@ -25,36 +25,120 @@ export const getDoctorProfile = async (req: Request, res: Response) => {
   }
 };
 
+// controllers/doctorController.ts
+
+// Fix the getTodayAppointments function
 export const getTodayAppointments = async (req: Request, res: Response) => {
   const { doctorId } = req.params;
   
   try {
     const [appointments]: any = await db.query(`
       SELECT 
-        pv.VisitID as id,
-        pv.PatientID as patientId,  -- ADD THIS LINE - Get the PatientID!
+        a.AppointmentID as id,
+        a.PatientID as patientId,
         p.Name as name, 
-        DATE_FORMAT(pv.ArrivalTime, '%h:%i %p') as time,
-        pv.VisitNotes as type,
-        pv.VisitStatus as status,
-        pv.VisitType,
-        pv.QueueNumber,
-        pv.QueuePosition,
-        pv.TriagePriority
-      FROM patient_visit pv
-      JOIN patient p ON pv.PatientID = p.PatientID
-      WHERE pv.DoctorID = ? 
-        AND DATE(pv.ArrivalTime) = CURDATE()
-        AND pv.VisitStatus IN ('checked-in', 'in-consultation')
-        AND pv.QueueStatus IN ('waiting', 'in-progress')
-      ORDER BY pv.QueuePosition ASC
+        DATE_FORMAT(a.AppointmentDateTime, '%h:%i %p') as time,
+        a.Purpose as type,
+        a.Status as status,
+        a.Notes,
+        'follow-up' as VisitType,  -- Default for appointments
+        NULL as QueueNumber,  -- Appointments don't have queue numbers yet
+        NULL as QueuePosition,
+        'medium' as TriagePriority,  -- Default priority for appointments
+        a.AppointmentDateTime
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE a.DoctorID = ? 
+        AND DATE(a.AppointmentDateTime) = CURDATE()
+        AND a.Status IN ('scheduled', 'confirmed', 'checked-in')
+      ORDER BY a.AppointmentDateTime ASC
     `, [doctorId]);
     
-    console.log('Appointments with PatientID:', appointments); // For debugging
+    console.log('Appointments API Response:', appointments);
     
     res.json(appointments);
   } catch (error) {
     console.error("Appointments error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Alternative: Get appointments that have corresponding patient_visit entries
+export const getTodayAppointmentsWithVisits = async (req: Request, res: Response) => {
+  const { doctorId } = req.params;
+  
+  try {
+    const [appointments]: any = await db.query(`
+      SELECT 
+        pv.VisitID as id,
+        pv.PatientID as patientId,
+        p.Name as name, 
+        DATE_FORMAT(a.AppointmentDateTime, '%h:%i %p') as time,
+        a.Purpose as type,
+        pv.VisitStatus as status,
+        pv.VisitType,
+        pv.QueueNumber,
+        pv.QueuePosition,
+        pv.TriagePriority,
+        pv.VisitNotes,
+        a.AppointmentDateTime
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN patient_visit pv ON a.PatientID = pv.PatientID 
+        AND DATE(pv.ArrivalTime) = CURDATE()
+        AND pv.DoctorID = a.DoctorID
+      WHERE a.DoctorID = ? 
+        AND DATE(a.AppointmentDateTime) = CURDATE()
+        AND a.Status IN ('scheduled', 'confirmed', 'checked-in')
+      ORDER BY a.AppointmentDateTime ASC
+    `, [doctorId]);
+    
+    console.log('Appointments with visits:', appointments);
+    
+    res.json(appointments);
+  } catch (error) {
+    console.error("Appointments error:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// If you want to show only scheduled appointments that haven't checked in yet:
+export const getTodayScheduledAppointments = async (req: Request, res: Response) => {
+  const { doctorId } = req.params;
+  
+  try {
+    const [appointments]: any = await db.query(`
+      SELECT 
+        a.AppointmentID as id,
+        a.PatientID as patientId,
+        p.Name as name, 
+        DATE_FORMAT(a.AppointmentDateTime, '%h:%i %p') as time,
+        a.Purpose as type,
+        a.Status as status,
+        a.Notes,
+        'follow-up' as VisitType,
+        NULL as QueueNumber,
+        NULL as QueuePosition,
+        'medium' as TriagePriority,
+        a.AppointmentDateTime
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN patient_visit pv ON a.PatientID = pv.PatientID 
+        AND DATE(pv.ArrivalTime) = CURDATE()
+        AND pv.DoctorID = a.DoctorID
+        AND pv.VisitStatus NOT IN ('completed', 'cancelled')
+      WHERE a.DoctorID = ? 
+        AND DATE(a.AppointmentDateTime) = CURDATE()
+        AND a.Status IN ('scheduled')  -- Only scheduled appointments
+        AND pv.VisitID IS NULL  -- No patient_visit created yet (not checked in)
+      ORDER BY a.AppointmentDateTime ASC
+    `, [doctorId]);
+    
+    console.log('Scheduled appointments (not checked in):', appointments);
+    
+    res.json(appointments);
+  } catch (error) {
+    console.error("Scheduled appointments error:", error);
     res.status(500).json({ error: "Server error" });
   }
 };
