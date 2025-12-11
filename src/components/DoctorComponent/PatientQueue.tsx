@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { 
   Users, User, Clock, AlertTriangle, Activity, Siren, Bell, 
   Calendar, UserPlus, UserCheck, RefreshCw, Eye, EyeOff,
-  Filter, Search, ChevronDown, ChevronUp, List, Grid
+  Filter, Search, ChevronDown, ChevronUp, List, Grid, CheckCircle, XCircle
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Alert, AlertDescription } from '../ui/alert';
 
 interface PatientQueueProps {
   doctorId: number | null;
@@ -28,9 +29,17 @@ interface PatientVisit {
   ArrivalTime: string;
   CalledTime: string | null;
   DoctorID: number | null;
+  AssignedDoctorID: number | null;
   TriagePriority: 'critical' | 'high' | 'medium' | 'low' | string;
   assignmentStatus?: string;
   assignedDoctorName?: string;
+  AppointmentDateTime?: string;
+  AppointmentTime?: string;
+  OriginalAppointmentTime?: string;
+  isAppointment?: boolean;
+  hasAppointment?: boolean;
+  appointmentId?: number;
+  isAssignedToCurrentDoctor?: boolean;
 }
 
 export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
@@ -42,8 +51,8 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
   const [assignedPatients, setAssignedPatients] = useState<PatientVisit[]>([]);
   const [unassignedPatients, setUnassignedPatients] = useState<PatientVisit[]>([]);
   const [appointments, setAppointments] = useState<PatientVisit[]>([]);
+  const [error, setError] = useState<string | null>(null);
   
-  // UI state
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetails, setShowDetails] = useState(true);
   const [showTriageLegend, setShowTriageLegend] = useState(true);
@@ -55,7 +64,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
   const cn = (...classes: (string | boolean | undefined)[]) => 
     classes.filter(Boolean).join(' ');
 
-  // Fetch appointments data - FIXED VERSION
   const fetchAppointments = async () => {
     if (!doctorId) return;
     
@@ -63,11 +71,11 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       const token = localStorage.getItem('token');
       
       if (!token) {
-        console.error('No authentication token found');
+        setError('No authentication token found');
         return;
       }
       
-      const response = await fetch(`http://localhost:3001/api/doctor/appointments/${doctorId}`, {
+      const response = await fetch(`http://localhost:3001/api/doctor/scheduled-appointments/${doctorId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -76,39 +84,39 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       
       if (response.ok) {
         const appointmentsData = await response.json();
-        console.log('Raw appointments data:', appointmentsData);
         
-        // Filter out walk-in patients and only show actual appointments
         const transformedAppointments = appointmentsData
-          .filter((appointment: any) => 
-            appointment && 
-            appointment.patientId && 
-            // Make sure it's not a walk-in
-            appointment.VisitType !== 'walk-in' &&
-            // Optional: also filter by status if needed
-            (!appointment.status || appointment.status !== 'checked-in')
-          )
-          .map((appointment: any, index: number) => ({
-            VisitID: appointment.id || Date.now() + index,
+          .filter((appointment: any) => appointment && appointment.patientId)
+          .map((appointment: any) => ({
+            VisitID: appointment.id,
             PatientID: appointment.patientId,
             PatientName: appointment.name,
-            QueueNumber: appointment.QueueNumber || `APP-${appointment.id || index}`,
-            QueuePosition: appointment.QueuePosition || 0,
-            QueueStatus: 'waiting',
-            VisitStatus: appointment.status || 'scheduled',
+            QueueNumber: `APP-${String(appointment.id).padStart(3, '0')}`,
+            QueuePosition: 0,
+            QueueStatus: 'waiting' as const,
+            VisitStatus: 'scheduled' as const,
             VisitType: appointment.VisitType || 'follow-up',
-            VisitNotes: appointment.type || appointment.Notes || appointment.VisitNotes || 'Appointment',
-            ArrivalTime: appointment.AppointmentDateTime || appointment.ArrivalTime || new Date().toISOString(),
+            VisitNotes: appointment.type || appointment.Notes || 'Appointment',
+            ArrivalTime: appointment.AppointmentDateTime,
+            AppointmentDateTime: appointment.AppointmentDateTime,
+            AppointmentTime: appointment.time || formatTime(appointment.AppointmentDateTime),
+            OriginalAppointmentTime: appointment.AppointmentDateTime,
             CalledTime: null,
-            DoctorID: doctorId,
+            DoctorID: null, // Appointments not assigned yet
+            AssignedDoctorID: null,
             TriagePriority: appointment.TriagePriority || 'medium',
-            assignedDoctorName: "You"
+            assignedDoctorName: "Scheduled",
+            isAppointment: true,
+            hasAppointment: true,
+            appointmentId: appointment.id,
+            isAssignedToCurrentDoctor: false
           }));
         
-        console.log('Transformed appointments:', transformedAppointments);
         setAppointments(transformedAppointments);
+        setError(null);
       } else {
-        console.error('Appointments fetch failed:', response.status, await response.text());
+        const errorText = await response.text();
+        console.error('Appointments fetch failed:', response.status, errorText);
         setAppointments([]);
       }
     } catch (error) {
@@ -117,7 +125,135 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     }
   };
 
-  // Fetch queue stats
+  const formatTime = (dateTime: string) => {
+    if (!dateTime) return '';
+    try {
+      const date = new Date(dateTime);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
+
+  const formatDate = (dateTime: string) => {
+    if (!dateTime) return '';
+    try {
+      const date = new Date(dateTime);
+      return date.toLocaleDateString([], { 
+        month: 'short', 
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch {
+      return '';
+    }
+  };
+
+  const fetchQueueData = async () => {
+    if (!doctorId) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        setError('No authentication token found');
+        return;
+      }
+      
+      // Use the enhanced queue endpoint that properly checks doctor assignments
+      const queueResponse = await fetch(`http://localhost:3001/api/doctor/queue-enhanced/${doctorId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (queueResponse.ok) {
+        const queueData = await queueResponse.json();
+        
+        if (queueData.success) {
+          console.log('Queue data received:', {
+            doctorId,
+            assignedCount: queueData.assignedPatients?.length || 0,
+            unassignedCount: queueData.unassignedPatients?.length || 0
+          });
+
+          // Transform patients to include proper assignment info
+          const transformPatients = (patients: any[], isAssigned: boolean) => {
+            return patients.map((patient: any) => ({
+              ...patient,
+              isAssignedToCurrentDoctor: isAssigned,
+              AssignedDoctorID: patient.DoctorID,
+              hasAppointment: patient.AppointmentDateTime ? true : false,
+              OriginalAppointmentTime: patient.AppointmentDateTime,
+              AppointmentTime: patient.AppointmentDateTime ? formatTime(patient.AppointmentDateTime) : undefined,
+              AppointmentDateTime: patient.AppointmentDateTime
+            }));
+          };
+
+          const assignedTransformed = transformPatients(queueData.assignedPatients || [], true);
+          const unassignedTransformed = transformPatients(queueData.unassignedPatients || [], false);
+          
+          setAssignedPatients(assignedTransformed);
+          setUnassignedPatients(unassignedTransformed);
+          
+          const totalWaiting = assignedTransformed.length + unassignedTransformed.length;
+          setPatientsWaiting(totalWaiting);
+          setError(null);
+        } else {
+          setError(queueData.error || 'Failed to fetch queue data');
+        }
+      } else {
+        const errorText = await queueResponse.text();
+        console.error('Queue fetch failed:', queueResponse.status, errorText);
+        setError('Failed to fetch queue data');
+        // Fallback to original endpoint
+        await fetchQueueDataFallback();
+      }
+    } catch (error) {
+      console.error("Error fetching queue data:", error);
+      setError('Network error fetching queue data');
+      await fetchQueueDataFallback();
+    }
+  };
+
+  const fetchQueueDataFallback = async () => {
+    if (!doctorId) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/doctor/queue/${doctorId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const queueData = await response.json();
+        
+        if (queueData.success) {
+          // Filter manually in frontend
+          const assigned = (queueData.assignedPatients || []).filter((patient: any) => 
+            patient.DoctorID == doctorId
+          );
+          
+          const unassigned = (queueData.unassignedPatients || []).filter((patient: any) => 
+            !patient.DoctorID || patient.DoctorID != doctorId
+          );
+          
+          setAssignedPatients(assigned);
+          setUnassignedPatients(unassigned);
+          
+          const totalWaiting = assigned.length + unassigned.length;
+          setPatientsWaiting(totalWaiting);
+        }
+      }
+    } catch (error) {
+      console.error("Fallback queue fetch error:", error);
+    }
+  };
+
   const fetchQueueStats = async () => {
     if (!doctorId) return;
     
@@ -125,7 +261,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       const token = localStorage.getItem('token');
       
       if (!token) {
-        console.error('No authentication token found');
+        setError('No authentication token found');
         return;
       }
       
@@ -139,63 +275,19 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       if (response.ok) {
         const statsData = await response.json();
         setPatientsSeenToday(statsData.patientsSeenToday || 0);
-        setPatientsWaiting(statsData.patientsWaiting || 0);
       }
     } catch (error) {
       console.error("Error fetching queue stats:", error);
     }
   };
 
-  // Fetch queue data
-  const fetchQueueData = async () => {
-    if (!doctorId) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        console.error('No authentication token found');
-        return;
-      }
-      
-      const queueResponse = await fetch(`http://localhost:3001/api/doctor/queue/${doctorId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (queueResponse.ok) {
-        const queueData = await queueResponse.json();
-        console.log('Queue API Response:', queueData);
-        setAssignedPatients(queueData.assignedPatients || []);
-        setUnassignedPatients(queueData.unassignedPatients || []);
-        
-        const totalWaiting = (queueData.assignedPatients?.length || 0) + 
-                            (queueData.unassignedPatients?.length || 0);
-        setPatientsWaiting(totalWaiting);
-      } else {
-        console.error('Queue fetch failed:', queueResponse.status, await queueResponse.text());
-      }
-    } catch (error) {
-      console.error("Error fetching queue data:", error);
-    }
-  };
-
-  // Fetch all data
   const fetchAllData = async () => {
     if (!doctorId) return;
     
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('No authentication token found');
-        return;
-      }
-      
+      setError(null);
       setRefreshing(true);
       
-      // Fetch all data in parallel for better performance
       await Promise.all([
         fetchQueueData(),
         fetchAppointments(),
@@ -204,6 +296,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       
     } catch (error) {
       console.error("Error fetching data:", error);
+      setError('Failed to fetch data. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -218,7 +311,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     }
   }, [doctorId]);
 
-  // Filter and sort patients based on active tab
   const filteredUnassignedPatients = unassignedPatients.filter(patient => {
     const matchesSearch = patient.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          patient.QueueNumber.includes(searchQuery) ||
@@ -242,7 +334,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     return matchesSearch && matchesPriority;
   });
 
-  // Get patients for current active tab
   const getCurrentPatients = () => {
     switch (activeTab) {
       case 'mine':
@@ -259,10 +350,8 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
 
   const currentPatients = getCurrentPatients();
 
-  // Handle refresh while preserving tab state
   const handleRefresh = async () => {
     await fetchAllData();
-    // If showDetails is true, expand all cards, otherwise collapse all
     if (showDetails) {
       setExpandedCards(currentPatients.map(p => p.VisitID));
     } else {
@@ -270,11 +359,11 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     }
   };
 
-  // Handle patient actions
   const handleClaimPatient = async (visitId: number) => {
     if (!doctorId) return;
     
     setLoading(true);
+    setError(null);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch("http://localhost:3001/api/doctor/claim-patient", {
@@ -289,22 +378,28 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        // Optimistic update
+        // Find and move patient from unassigned to assigned
         const patientToClaim = unassignedPatients.find(p => p.VisitID === visitId);
         if (patientToClaim) {
-          const updatedPatient = { ...patientToClaim, DoctorID: doctorId, assignedDoctorName: "You" };
+          const updatedPatient = { 
+            ...patientToClaim, 
+            DoctorID: doctorId, 
+            AssignedDoctorID: doctorId,
+            assignedDoctorName: "You",
+            isAssignedToCurrentDoctor: true
+          };
           setUnassignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
           setAssignedPatients(prev => [...prev, updatedPatient]);
         }
+        await fetchAllData(); // Refresh all data
       } else {
-        alert(result.error || 'Failed to claim patient');
+        setError(result.error || 'Failed to claim patient');
       }
     } catch (error) {
       console.error("Claim patient error:", error);
-      alert("Failed to claim patient. Please try again.");
+      setError("Failed to claim patient. Please try again.");
     } finally {
       setLoading(false);
-      fetchAllData();
     }
   };
 
@@ -312,6 +407,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     if (!doctorId) return;
     
     setLoading(true);
+    setError(null);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch("http://localhost:3001/api/doctor/visit-patient", {
@@ -327,9 +423,10 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
 
       if (response.ok && result.success) {
         setSelectedPatientId(visitId);
+        // Update patient status locally
         const updatePatientStatus = (patients: PatientVisit[]) =>
           patients.map(patient => 
-            patient.VisitID === visitId 
+            patient.VisitID === visitId && patient.isAssignedToCurrentDoctor
               ? { 
                   ...patient, 
                   QueueStatus: 'in-progress' as const,
@@ -340,16 +437,15 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
           );
         
         setAssignedPatients(updatePatientStatus);
-        setUnassignedPatients(updatePatientStatus);
+        await fetchAllData(); // Refresh data
       } else {
-        alert(result.error || 'Failed to call patient');
+        setError(result.error || 'Failed to call patient');
       }
     } catch (error) {
       console.error("Call patient error:", error);
-      alert("Failed to call patient. Please try again.");
+      setError("Failed to call patient. Please try again.");
     } finally {
       setLoading(false);
-      fetchAllData();
     }
   };
 
@@ -357,6 +453,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     if (!doctorId) return;
     
     setLoading(true);
+    setError(null);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
@@ -372,22 +469,22 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
 
       if (response.ok && result.success) {
         setSelectedPatientId(null);
+        // Remove from assigned patients
         setAssignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
         setPatientsSeenToday(prev => prev + 1);
         setPatientsWaiting(prev => Math.max(0, prev - 1));
+        await fetchAllData(); // Refresh data
       } else {
-        alert(result.error || 'Failed to complete visit');
+        setError(result.error || 'Failed to complete visit');
       }
     } catch (error) {
       console.error("Complete visit error:", error);
-      alert("Failed to complete visit. Please try again.");
+      setError("Failed to complete visit. Please try again.");
     } finally {
       setLoading(false);
-      fetchAllData();
     }
   };
 
-  // Toggle card expansion
   const toggleCardExpansion = (visitId: number) => {
     setExpandedCards(prev =>
       prev.includes(visitId)
@@ -396,32 +493,38 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     );
   };
 
-  // Toggle all cards expansion based on showDetails
   const toggleAllCards = () => {
     const newShowDetails = !showDetails;
     setShowDetails(newShowDetails);
     
     if (newShowDetails) {
-      // Show all details - expand all cards
       setExpandedCards(currentPatients.map(p => p.VisitID));
     } else {
-      // Hide all details - collapse all cards
       setExpandedCards([]);
     }
   };
 
-  const calculateWaitTime = (arrivalTime: string) => {
-    if (!arrivalTime) return 'Just arrived';
-    const arrival = new Date(arrivalTime);
-    const now = new Date();
-    const diffMinutes = Math.floor((now.getTime() - arrival.getTime()) / (1000 * 60));
-    
-    if (diffMinutes < 1) return 'Just arrived';
-    if (diffMinutes < 60) return `${diffMinutes}m`;
-    
-    const hours = Math.floor(diffMinutes / 60);
-    const minutes = diffMinutes % 60;
-    return `${hours}h ${minutes}m`;
+  const calculateDisplayTime = (patient: PatientVisit) => {
+    if (patient.isAppointment) {
+      return patient.AppointmentTime || formatTime(patient.ArrivalTime) || 'Scheduled';
+    } else {
+      if (!patient.ArrivalTime) return 'Just arrived';
+      
+      try {
+        const arrival = new Date(patient.ArrivalTime);
+        const now = new Date();
+        const diffMinutes = Math.floor((now.getTime() - arrival.getTime()) / (1000 * 60));
+        
+        if (diffMinutes < 1) return 'Just arrived';
+        if (diffMinutes < 60) return `${diffMinutes}m`;
+        
+        const hours = Math.floor(diffMinutes / 60);
+        const minutes = diffMinutes % 60;
+        return `${hours}h ${minutes}m`;
+      } catch {
+        return 'Just arrived';
+      }
+    }
   };
 
   const getTriageBadge = (priority: string) => {
@@ -442,26 +545,111 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     ) : null;
   };
 
-  const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      'waiting': { label: 'Waiting', variant: 'outline' as const, className: '' },
-      'in-progress': { label: 'In Consultation', variant: 'default' as const, className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-      'in-consultation': { label: 'In Consultation', variant: 'default' as const, className: 'bg-purple-100 text-purple-800 border-purple-200' },
-      'checked-in': { label: 'Checked In', variant: 'default' as const, className: 'bg-blue-100 text-blue-800 border-blue-200' },
-      'scheduled': { label: 'Scheduled', variant: 'default' as const, className: 'bg-indigo-100 text-indigo-800 border-indigo-200' }
-    };
-    
-    const conf = statusConfig[status as keyof typeof statusConfig] || { label: status, variant: 'outline' as const, className: '' };
-    return <Badge variant={conf.variant} className={`text-xs ${conf.className}`}>{conf.label}</Badge>;
-  };
-
-  // Render patient card with different views
-  const renderPatientCard = (patient: PatientVisit, isAssigned: boolean, isAppointment: boolean = false) => {
+  const renderPatientCard = (patient: PatientVisit, isAssignedToCurrentDoctor: boolean, isAppointment: boolean = false) => {
     const isInProgress = patient.QueueStatus === 'in-progress' || patient.VisitStatus === 'in-consultation';
     const isSelected = selectedPatientId === patient.VisitID;
     const isExpanded = showDetails || expandedCards.includes(patient.VisitID);
     const canCall = patient.QueueStatus === 'waiting' && patient.VisitStatus === 'checked-in';
-    const canClaim = !isAssigned && patient.DoctorID === null && canCall && !isAppointment;
+    const canClaim = !isAssignedToCurrentDoctor && patient.DoctorID === null && canCall && !isAppointment;
+    const isCheckedIn = !isAppointment && patient.VisitStatus === 'checked-in';
+    const hasAppointment = patient.hasAppointment || patient.AppointmentDateTime;
+    const isAssignedToOtherDoctor = patient.DoctorID && patient.DoctorID !== doctorId;
+    const isAssignedToMe = patient.DoctorID === doctorId && patient.isAssignedToCurrentDoctor;
+
+    const getStatusText = () => {
+      if (isAppointment) return 'Scheduled';
+      if (patient.VisitStatus === 'checked-in') return 'Checked In';
+      if (patient.VisitStatus === 'in-consultation') return 'In Consultation';
+      return patient.VisitStatus || 'Waiting';
+    };
+
+    const getStatusBadge = () => {
+      const text = getStatusText();
+      let className = "text-xs";
+      
+      if (isAppointment) {
+        className += ' border-indigo-300 text-indigo-700 bg-indigo-50';
+      } else if (isAssignedToOtherDoctor) {
+        className += ' border-gray-300 text-gray-700 bg-gray-100';
+      } else if (isCheckedIn) {
+        className += ' bg-green-100 text-green-800 border-green-200';
+      } else if (isInProgress) {
+        className += ' bg-yellow-100 text-yellow-800 border-yellow-200';
+      } else if (patient.VisitStatus === 'in-consultation') {
+        className += ' bg-purple-100 text-purple-800 border-purple-200';
+      }
+      
+      return <Badge variant={isAppointment ? "outline" : "default"} className={className}>{text}</Badge>;
+    };
+
+    const getButtonConfig = () => {
+      // If patient is assigned to another doctor, disable all actions
+      if (isAssignedToOtherDoctor) {
+        return {
+          text: `With Dr. ${patient.assignedDoctorName || 'Another Doctor'}`,
+          variant: 'outline' as const,
+          className: 'border-gray-300 text-gray-500 bg-gray-50',
+          disabled: true,
+          onClick: null,
+          icon: <User className="size-3 mr-1" />
+        };
+      }
+      
+      if (isAppointment) {
+        return {
+          text: 'Scheduled',
+          variant: 'outline' as const,
+          className: 'border-indigo-300 text-indigo-700 bg-indigo-50',
+          disabled: true,
+          onClick: null,
+          icon: <Calendar className="size-3 mr-1" />
+        };
+      }
+      
+      if (isInProgress && isAssignedToMe) {
+        return {
+          text: 'Complete Visit',
+          variant: 'default' as const,
+          className: 'bg-green-600 hover:bg-green-700',
+          disabled: loading,
+          onClick: handleCompleteVisit,
+          icon: <CheckCircle className="size-3 mr-1" />
+        };
+      }
+      
+      if (canClaim && !isAssignedToOtherDoctor) {
+        return {
+          text: 'Claim Patient',
+          variant: 'outline' as const,
+          className: 'border-orange-300 text-orange-700 hover:bg-orange-50',
+          disabled: loading,
+          onClick: handleClaimPatient,
+          icon: <UserPlus className="size-3 mr-1" />
+        };
+      }
+      
+      if (canCall && isAssignedToMe) {
+        return {
+          text: selectedPatientId === patient.VisitID ? 'Consulting...' : 'Call Patient',
+          variant: 'default' as const,
+          className: 'bg-blue-600 hover:bg-blue-700',
+          disabled: loading || (selectedPatientId !== null && selectedPatientId !== patient.VisitID),
+          onClick: handleCallPatient,
+          icon: <Bell className="size-3 mr-1" />
+        };
+      }
+      
+      return {
+        text: getStatusText(),
+        variant: 'outline' as const,
+        className: 'opacity-50',
+        disabled: true,
+        onClick: null,
+        icon: null
+      };
+    };
+
+    const buttonConfig = getButtonConfig();
 
     if (viewMode === 'compact' && !isExpanded) {
       return (
@@ -471,47 +659,68 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             "border rounded-lg p-3 hover:shadow-sm transition-all",
             isSelected ? 'border-blue-300 bg-blue-50/50' :
             isInProgress ? 'border-yellow-300 bg-yellow-50/50' :
+            isAssignedToOtherDoctor ? 'border-gray-200 bg-gray-50/30' :
             patient.TriagePriority === 'critical' ? 'border-red-200 bg-red-50/20' :
             patient.TriagePriority === 'high' ? 'border-orange-200 bg-orange-50/20' :
+            isAppointment ? 'border-indigo-200 bg-indigo-50/20' :
+            hasAppointment ? 'border-blue-200 bg-blue-50/10' :
             'border-gray-200 hover:border-gray-300'
           )}
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Badge 
-                variant={isInProgress ? 'default' : 'outline'}
+                variant={isAppointment ? "outline" : isInProgress ? "default" : "outline"}
                 className={cn(
                   isInProgress && 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                  isAssignedToOtherDoctor ? 'bg-gray-100 text-gray-700 border-gray-300' : undefined,
+                  isAppointment && 'border-indigo-300 text-indigo-700 bg-indigo-50',
+                  hasAppointment && !isAppointment && 'border-blue-300 text-blue-700 bg-blue-50',
                   "text-xs min-w-[40px] text-center"
                 )}
               >
-                #{patient.QueueNumber?.split('-').pop() || 'N/A'}
+                {isAppointment ? (
+                  <>
+                    <Calendar className="size-3 mr-1 inline" />
+                    Appt
+                  </>
+                ) : (
+                  `#${patient.QueueNumber?.split('-').pop() || 'N/A'}`
+                )}
               </Badge>
               
               <div>
                 <p className="text-sm font-medium text-gray-900">{patient.PatientName}</p>
                 <div className="flex items-center gap-2 mt-1">
-                  {getTriageBadge(patient.TriagePriority)}
-                  {isAppointment && (
-                    <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-xs">
-                      <Calendar className="size-3 mr-1" />
-                      Appt
-                    </Badge>
-                  )}
+                  {!isAppointment && getTriageBadge(patient.TriagePriority)}
                   <span className="text-xs text-gray-500">
                     {patient.VisitType === 'walk-in' ? 'Walk-in' : 
                      patient.VisitType === 'follow-up' ? 'Follow-up' : 'First-time'}
                   </span>
+                  {hasAppointment && !isAppointment && (
+                    <span className="text-xs text-blue-600 flex items-center gap-1">
+                      <Clock className="size-3" />
+                      {formatTime(patient.OriginalAppointmentTime || patient.AppointmentDateTime || '')}
+                    </span>
+                  )}
+                  {isAssignedToOtherDoctor && (
+                    <span className="text-xs text-gray-500 flex items-center gap-1">
+                      <User className="size-3" />
+                      {patient.assignedDoctorName || 'Another Doctor'}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
             
             <div className="flex items-center gap-3">
-              {getStatusBadge(isAppointment ? patient.VisitStatus : patient.QueueStatus)}
-              <div className="text-xs text-gray-500 flex items-center gap-1">
-                <Clock className="size-3" />
-                {calculateWaitTime(patient.ArrivalTime)}
-              </div>
+              {getStatusBadge()}
+              {!isAssignedToOtherDoctor && (
+                <div className="text-xs text-gray-500 flex items-center gap-1">
+                  <Clock className="size-3" />
+                  {calculateDisplayTime(patient)}
+                </div>
+              )}
               {showDetails ? null : (
                 <ChevronDown 
                   className="size-4 text-gray-400 cursor-pointer hover:text-gray-600"
@@ -527,7 +736,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       );
     }
 
-    // List view or expanded view
     return (
       <div
         key={patient.VisitID}
@@ -535,8 +743,11 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
           "border rounded-lg transition-all hover:shadow-sm",
           isSelected ? 'border-blue-300 bg-blue-50/50' :
           isInProgress ? 'border-yellow-300 bg-yellow-50/50' :
+          isAssignedToOtherDoctor ? 'border-gray-200 bg-gray-50/30' :
           patient.TriagePriority === 'critical' ? 'border-red-200 bg-red-50/20' :
           patient.TriagePriority === 'high' ? 'border-orange-200 bg-orange-50/20' :
+          isAppointment ? 'border-indigo-200 bg-indigo-50/20' :
+          hasAppointment ? 'border-blue-200 bg-blue-50/10' :
           'border-gray-200 hover:border-gray-300'
         )}
       >
@@ -544,51 +755,63 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
           className={cn("p-3 transition-colors", !showDetails && "cursor-pointer hover:bg-gray-50/50")}
           onClick={!showDetails ? () => toggleCardExpansion(patient.VisitID) : undefined}
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3">
               <Badge 
-                variant={isInProgress ? 'default' : 'outline'}
+                variant={isAppointment ? "outline" : isInProgress ? "default" : "outline"}
                 className={cn(
                   isInProgress && 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                  "text-xs min-w-[40px] text-center"
+                  isAssignedToOtherDoctor ? 'bg-gray-100 text-gray-700 border-gray-300' : undefined,
+                  isAppointment && 'border-indigo-300 text-indigo-700 bg-indigo-50',
+                  hasAppointment && !isAppointment && 'border-blue-300 text-blue-700 bg-blue-50',
+                  "text-xs h-8 px-3 flex items-center"
                 )}
               >
-                #{patient.QueueNumber?.split('-').pop() || 'N/A'}
+                {isAppointment ? (
+                  <>
+                    <Calendar className="size-3 mr-1" />
+                    Appointment
+                  </>
+                ) : (
+                  `#${patient.QueueNumber?.split('-').pop() || 'N/A'}`
+                )}
               </Badge>
               
-              <div className="flex items-center gap-2">
-                {getTriageBadge(patient.TriagePriority)}
-                {isAppointment && (
-                  <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-xs">
-                    <Calendar className="size-3 mr-1" />
-                    Appt
-                  </Badge>
-                )}
-              </div>
-              
               <div className="flex flex-col">
-                <p className="text-sm font-medium text-gray-900">{patient.PatientName}</p>
-                <p className="text-xs text-gray-500">
-                  {patient.VisitType === 'walk-in' ? 'Walk-in' : 
-                   patient.VisitType === 'follow-up' ? 'Follow-up' : 'First-time'}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-900">{patient.PatientName}</p>
+                  {!isAppointment && getTriageBadge(patient.TriagePriority)}
+                  {isAssignedToOtherDoctor && (
+                    <Badge variant="outline" className="text-xs border-gray-300 text-gray-600">
+                      <User className="size-3 mr-1" />
+                      {patient.assignedDoctorName || 'Another Doctor'}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                    {patient.VisitType === 'walk-in' ? 'Walk-in' : 
+                     patient.VisitType === 'follow-up' ? 'Follow-up' : 'First-time'}
+                  </span>
+                  {hasAppointment && (
+                    <span className="text-xs text-blue-600 flex items-center gap-1">
+                      <Clock className="size-3" />
+                      {isAppointment ? calculateDisplayTime(patient) : formatTime(patient.OriginalAppointmentTime || patient.AppointmentDateTime || '')}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                {getStatusBadge(isAppointment ? patient.VisitStatus : patient.QueueStatus)}
-                {!isAssigned && patient.DoctorID && !isAppointment && (
-                  <Badge variant="outline" className="text-xs">
-                    Assigned
-                  </Badge>
-                )}
-              </div>
+            <div className="flex items-center justify-between sm:justify-end gap-3">
+              {getStatusBadge()}
               
-              <div className="text-xs text-gray-500 flex items-center gap-1">
-                <Clock className="size-3" />
-                {calculateWaitTime(patient.ArrivalTime)}
-              </div>
+              {!isAssignedToOtherDoctor && (!hasAppointment || isAppointment) && (
+                <div className="text-xs text-gray-500 flex items-center gap-1">
+                  <Clock className="size-3" />
+                  {calculateDisplayTime(patient)}
+                </div>
+              )}
               
               {!showDetails && (
                 isExpanded ? 
@@ -599,103 +822,85 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
           </div>
         </div>
         
-        {/* Expanded Details - only show if showDetails is true OR card is manually expanded */}
         {(showDetails || expandedCards.includes(patient.VisitID)) && (
-          <div className="px-3 pb-3 border-t pt-3">
+          <div className="px-4 pb-4 border-t pt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                {patient.VisitNotes && (
+              <div className="space-y-3">
+                {patient.VisitNotes && patient.VisitNotes.trim() !== '' && (
                   <div>
-                    <p className="text-xs font-medium text-gray-700">Reason for Visit:</p>
-                    <p className="text-xs text-gray-600">{patient.VisitNotes}</p>
+                    <p className="text-xs font-medium text-gray-700 mb-1">Reason for Visit:</p>
+                    <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded">{patient.VisitNotes}</p>
                   </div>
                 )}
                 
-                <div className="flex items-center gap-3 text-xs text-gray-500">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
                   {patient.CalledTime && (
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1 bg-blue-50 px-2 py-1 rounded">
                       <Bell className="size-3" />
-                      Called at: {new Date(patient.CalledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      Called: {new Date(patient.CalledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                  
+                  {patient.assignedDoctorName && (
+                    <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+                      <User className="size-3" />
+                      {isAssignedToCurrentDoctor ? 'Your Patient' : `Dr. ${patient.assignedDoctorName}`}
+                    </span>
+                  )}
+                  
+                  {!isAppointment && patient.QueuePosition && patient.QueuePosition > 0 && (
+                    <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
+                      Position: <span className="font-medium">{patient.QueuePosition}</span>
                     </span>
                   )}
                 </div>
-                
-                {patient.assignedDoctorName && (
-                  <p className="text-xs text-blue-600 flex items-center gap-1">
-                    <User className="size-3" />
-                    {isAssigned ? 'Your Patient' : `Assigned to Dr. ${patient.assignedDoctorName}`}
-                  </p>
-                )}
               </div>
               
-              <div className="flex flex-col gap-2">
-                {!isAppointment && (
+              <div className="flex flex-col justify-between gap-3">
+                {hasAppointment && (
                   <div className="text-xs text-gray-500">
-                    Queue Position: <span className="font-medium">{patient.QueuePosition}</span>
+                    <div className="font-medium mb-1">Appointment Details:</div>
+                    <div className="space-y-1 bg-indigo-50 p-2 rounded">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="size-3" />
+                        <span>Scheduled for: {formatTime(patient.OriginalAppointmentTime || patient.AppointmentDateTime || '')}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Clock className="size-3" />
+                        <span>{formatDate(patient.OriginalAppointmentTime || patient.AppointmentDateTime || '')}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {patient.ArrivalTime && !isAppointment && (
+                  <div className="text-xs text-gray-500">
+                    <span className="font-medium">Arrived:</span> {formatTime(patient.ArrivalTime)}
+                    {hasAppointment && (
+                      <div className="mt-1 text-blue-600 flex items-center gap-1">
+                        <CheckCircle className="size-3" />
+                        Checked in for appointment
+                      </div>
+                    )}
                   </div>
                 )}
                 
                 <div className="flex gap-2">
-                  {isAppointment ? (
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleClaimPatient(patient.VisitID);
-                      }}
-                      disabled={loading}
-                      className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 text-xs px-3"
-                    >
-                      Check In
-                    </Button>
-                  ) : isInProgress ? (
-                    <Button 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCompleteVisit(patient.VisitID);
-                      }}
-                      className="bg-green-600 hover:bg-green-700 text-xs px-3"
-                      disabled={loading}
-                    >
-                      Complete Visit
-                    </Button>
-                  ) : canClaim ? (
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleClaimPatient(patient.VisitID);
-                      }}
-                      disabled={loading}
-                      className="border-orange-300 text-orange-700 hover:bg-orange-50 text-xs px-3"
-                    >
-                      Claim Patient
-                    </Button>
-                  ) : canCall ? (
-                    <Button 
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCallPatient(patient.VisitID);
-                      }}
-                      disabled={loading || (selectedPatientId !== null && selectedPatientId !== patient.VisitID)}
-                      className="bg-blue-600 hover:bg-blue-700 text-xs px-3"
-                    >
-                      {selectedPatientId === patient.VisitID ? 'Consulting...' : 'Call Patient'}
-                    </Button>
-                  ) : (
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      disabled
-                      className="opacity-50 text-xs px-3"
-                    >
-                      Not Available
-                    </Button>
-                  )}
+                  <Button 
+                    size="sm" 
+                    variant={buttonConfig.variant}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (buttonConfig.onClick) {
+                        buttonConfig.onClick(patient.VisitID);
+                      }
+                    }}
+                    disabled={buttonConfig.disabled}
+                    className={cn("text-xs px-4 flex items-center", buttonConfig.className)}
+                  >
+                    {buttonConfig.icon}
+                    {buttonConfig.text}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -707,7 +912,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header with Controls */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Patient Queue</h2>
@@ -715,7 +919,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
         </div>
         
         <div className="flex items-center gap-2">
-          {/* View Mode Toggle */}
           <div className="flex items-center border rounded-md overflow-hidden">
             <Button
               variant={viewMode === 'compact' ? 'default' : 'outline'}
@@ -735,7 +938,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             </Button>
           </div>
           
-          {/* Toggle Details Button */}
           <Button
             variant={showDetails ? 'default' : 'outline'}
             size="sm"
@@ -746,7 +948,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             {showDetails ? 'Hide Details' : 'Show Details'}
           </Button>
           
-          {/* Refresh Button - preserves tab state */}
           <Button
             variant="outline"
             size="sm"
@@ -760,10 +961,23 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
         </div>
       </div>
 
+      {error && (
+        <Alert variant="destructive">
+          <XCircle className="size-4" />
+          <AlertDescription>{error}</AlertDescription>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setError(null)}
+            className="ml-auto"
+          >
+            Dismiss
+          </Button>
+        </Alert>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Main Queue Section - 2/3 width */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Search and Filter Bar */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 size-4" />
@@ -791,7 +1005,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             </div>
           </div>
 
-          {/* Tabs for different patient categories */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid grid-cols-4 mb-4">
               <TabsTrigger value="all" className="flex items-center gap-2">
@@ -822,7 +1035,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
               {currentPatients.length > 0 ? (
                 <div className="space-y-2">
                   {currentPatients.map(patient => {
-                    const isAssigned = assignedPatients.some(p => p.VisitID === patient.VisitID);
+                    const isAssigned = assignedPatients.some(p => p.VisitID === patient.VisitID && p.isAssignedToCurrentDoctor);
                     const isAppointment = appointments.some(p => p.VisitID === patient.VisitID);
                     return renderPatientCard(patient, isAssigned, isAppointment);
                   })}
@@ -867,7 +1080,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             <TabsContent value="appointments" className="space-y-2">
               {filteredAppointments.length > 0 ? (
                 <div className="space-y-2">
-                  {filteredAppointments.map(patient => renderPatientCard(patient, true, true))}
+                  {filteredAppointments.map(patient => renderPatientCard(patient, false, true))}
                 </div>
               ) : (
                 <div className="text-center py-12 text-gray-500 border rounded-lg">
@@ -879,9 +1092,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
           </Tabs>
         </div>
 
-        {/* Statistics Sidebar - 1/3 width */}
         <div className="lg:col-span-1 space-y-4">
-          {/* Quick Stats */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Today's Overview</CardTitle>
@@ -908,7 +1119,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             </CardContent>
           </Card>
 
-          {/* Triage Legend (Collapsible) */}
           <Card>
             <CardHeader className="pb-3">
               <div 
@@ -961,7 +1171,6 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
             )}
           </Card>
 
-          {/* Quick Actions */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Quick Actions</CardTitle>
@@ -990,14 +1199,12 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
                 variant="outline" 
                 className="w-full justify-start text-left"
                 onClick={() => {
-                  setActiveTab('all');
-                  setSearchQuery('');
+                  setActiveTab('appointments');
                   setFilterPriority('all');
-                  toggleAllCards();
                 }}
               >
-                <Users className="size-4 mr-2" />
-                View All with Details
+                <Calendar className="size-4 mr-2" />
+                View Appointments
               </Button>
             </CardContent>
           </Card>

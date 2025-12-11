@@ -25,7 +25,192 @@ export const getDoctorProfile = async (req: Request, res: Response) => {
   }
 };
 
-// controllers/doctorController.ts
+// Get only scheduled appointments (not checked in yet)
+export const getScheduledAppointments = async (req: Request, res: Response) => {
+  const { doctorId } = req.params;
+  
+  try {
+    const [appointments]: any = await db.query(`
+      SELECT 
+        a.AppointmentID as id,
+        a.PatientID as patientId,
+        p.Name as name, 
+        DATE_FORMAT(a.AppointmentDateTime, '%h:%i %p') as time,
+        a.Purpose as type,
+        a.Status as status,
+        a.Notes,
+        a.AppointmentDateTime,
+        'follow-up' as VisitType,
+        'scheduled' as VisitStatus,
+        'medium' as TriagePriority
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE a.DoctorID = ? 
+        AND DATE(a.AppointmentDateTime) = CURDATE()
+        AND a.Status = 'scheduled'
+        AND NOT EXISTS (
+          SELECT 1 FROM patient_visit pv 
+          WHERE pv.PatientID = a.PatientID 
+            AND DATE(pv.ArrivalTime) = CURDATE()
+            AND pv.VisitStatus = 'checked-in'
+        )
+      ORDER BY a.AppointmentDateTime ASC
+    `, [doctorId]);
+    
+    console.log('Scheduled appointments (not checked in):', appointments);
+    
+    res.json(appointments);
+  } catch (error) {
+    console.error("Scheduled appointments error:", error);
+    res.status(500).json({ error: "Failed to fetch scheduled appointments" });
+  }
+};
+
+// Get appointment info for a specific patient
+export const getPatientAppointment = async (req: Request, res: Response) => {
+  const { patientId, doctorId } = req.params;
+  
+  try {
+    const [appointment]: any = await db.query(`
+      SELECT 
+        a.AppointmentID,
+        a.AppointmentDateTime,
+        a.Status,
+        a.Purpose
+      FROM appointment a
+      WHERE a.PatientID = ? 
+        AND a.DoctorID = ?
+        AND DATE(a.AppointmentDateTime) = CURDATE()
+        AND a.Status IN ('scheduled', 'confirmed', 'checked-in')
+      ORDER BY a.AppointmentDateTime DESC
+      LIMIT 1
+    `, [patientId, doctorId]);
+    
+    if (appointment.length > 0) {
+      res.json(appointment[0]);
+    } else {
+      res.json(null);
+    }
+  } catch (error) {
+    console.error("Patient appointment error:", error);
+    res.json(null);
+  }
+};
+
+// Enhanced queue endpoint with proper doctor assignment checks
+export const getEnhancedPatientQueue = async (req: Request, res: Response) => {
+  const { doctorId } = req.params;
+  
+  try {
+    // Get patients assigned to THIS SPECIFIC doctor
+    const [assignedPatients]: any = await db.query(`
+      SELECT 
+        pv.VisitID,
+        pv.PatientID,
+        p.Name as PatientName,
+        pv.QueueNumber,
+        pv.QueuePosition,
+        pv.QueueStatus,
+        pv.VisitStatus,
+        pv.VisitType,
+        pv.VisitNotes,
+        pv.ArrivalTime,
+        pv.CalledTime,
+        pv.DoctorID,
+        pv.TriagePriority,
+        'assigned' as queueType,
+        u.Name as assignedDoctorName,
+        a.AppointmentDateTime
+      FROM patient_visit pv
+      JOIN patient p ON pv.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
+      LEFT JOIN appointment a ON pv.AppointmentID = a.AppointmentID
+      WHERE pv.DoctorID = ? 
+        AND DATE(pv.ArrivalTime) = CURDATE()
+        AND pv.VisitStatus NOT IN ('completed', 'cancelled', 'no-show')
+        AND pv.QueueStatus NOT IN ('completed', 'cancelled')
+      ORDER BY 
+        CASE pv.TriagePriority
+          WHEN 'critical' THEN 1
+          WHEN 'high' THEN 2
+          WHEN 'medium' THEN 3
+          WHEN 'low' THEN 4
+          ELSE 5
+        END,
+        pv.QueuePosition ASC
+    `, [doctorId]);
+    
+    // Get unassigned patients (no doctor OR different doctor)
+    const [unassignedPatients]: any = await db.query(`
+      SELECT 
+        pv.VisitID,
+        pv.PatientID,
+        p.Name as PatientName,
+        pv.QueueNumber,
+        pv.QueuePosition,
+        pv.QueueStatus,
+        pv.VisitStatus,
+        pv.VisitType,
+        pv.VisitNotes,
+        pv.ArrivalTime,
+        pv.CalledTime,
+        pv.DoctorID,
+        pv.TriagePriority,
+        'unassigned' as queueType,
+        u.Name as assignedDoctorName,
+        a.AppointmentDateTime
+      FROM patient_visit pv
+      JOIN patient p ON pv.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
+      LEFT JOIN appointment a ON pv.AppointmentID = a.AppointmentID
+      WHERE (pv.DoctorID IS NULL OR pv.DoctorID != ?)
+        AND DATE(pv.ArrivalTime) = CURDATE()
+        AND pv.VisitStatus NOT IN ('completed', 'cancelled', 'no-show')
+        AND pv.QueueStatus NOT IN ('completed', 'cancelled')
+      ORDER BY 
+        CASE pv.TriagePriority
+          WHEN 'critical' THEN 1
+          WHEN 'high' THEN 2
+          WHEN 'medium' THEN 3
+          WHEN 'low' THEN 4
+          ELSE 5
+        END,
+        pv.QueuePosition ASC
+    `, [doctorId]);
+    
+    console.log('Enhanced queue debug:', {
+      doctorId,
+      assignedCount: assignedPatients.length,
+      unassignedCount: unassignedPatients.length,
+      assignedDoctors: assignedPatients.map((p: any) => ({ 
+        id: p.VisitID, 
+        doctorId: p.DoctorID, 
+        doctorName: p.assignedDoctorName 
+      })),
+      unassignedDoctors: unassignedPatients.map((p: any) => ({ 
+        id: p.VisitID, 
+        doctorId: p.DoctorID, 
+        doctorName: p.assignedDoctorName 
+      }))
+    });
+    
+    res.json({
+      success: true,
+      assignedPatients,
+      unassignedPatients,
+      totalAssigned: assignedPatients.length,
+      totalUnassigned: unassignedPatients.length
+    });
+    
+  } catch (error) {
+    console.error("Enhanced queue error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Server error" 
+    });
+  }
+};
+
 
 // Fix the getTodayAppointments function
 export const getTodayAppointments = async (req: Request, res: Response) => {

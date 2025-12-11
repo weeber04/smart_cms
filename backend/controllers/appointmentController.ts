@@ -629,13 +629,23 @@ export const checkBulkAvailability = async (req: Request, res: Response) => {
 // The existing functions (checkInAppointment, markAppointmentLate, cancelAppointment, rescheduleAppointment) 
 // remain the same as in your original code...
 
+// In your appointmentController.ts - Update the getTodayAppointments function:
+
 // 1. Get today's appointments with visit status - UPDATED
 export const getTodayAppointments = async (req: Request, res: Response) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    // First, let's see what the server thinks is today
+    const serverNow = new Date();
+    console.log('=== BACKEND DATE DEBUG ===');
+    console.log('Server Date:', serverNow.toString());
+    console.log('Server Local Date:', serverNow.toLocaleDateString());
+    console.log('Server UTC Date:', serverNow.toISOString().split('T')[0]);
+    console.log('Server Timezone Offset (minutes):', serverNow.getTimezoneOffset());
+    
+    // Use MySQL's CURDATE() function (database server's local date)
+    console.log('Using CURDATE() for query...');
     
     // CORRECT QUERY: Only show appointments (NOT walk-ins)
-    // Walk-ins have NULL AppointmentID in patient_visit table
     const [appointments]: any = await db.query(`
       SELECT 
         a.AppointmentID,
@@ -666,38 +676,54 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
       LEFT JOIN doctorprofile dp ON a.DoctorID = dp.DoctorID
       LEFT JOIN useraccount u ON a.DoctorID = u.UserID
       LEFT JOIN patient_visit v ON a.AppointmentID = v.AppointmentID 
-        AND v.VisitStatus NOT IN ('cancelled', 'no-show')
-      WHERE DATE(a.AppointmentDateTime) = ?
+        AND (v.VisitStatus IS NULL OR v.VisitStatus NOT IN ('cancelled', 'no-show'))
+      WHERE DATE(a.AppointmentDateTime) = CURDATE()
+        AND a.Status NOT IN ('cancelled', 'no-show')
       ORDER BY 
-        a.start_time ASC,
-        CASE 
-          WHEN a.Status = 'cancelled' THEN 2
-          ELSE 1 
-        END
-    `, [today]);
+        a.start_time ASC
+    `);
+    
+    console.log(`=== QUERY RESULTS ===`);
+    console.log(`Found ${appointments.length} appointments for CURDATE()`);
+    
+    // Check what CURDATE() returns
+    const [dateCheck]: any = await db.query(`SELECT CURDATE() as mysql_today, NOW() as mysql_now`);
+    console.log('MySQL CURDATE():', dateCheck[0]?.mysql_today);
+    console.log('MySQL NOW():', dateCheck[0]?.mysql_now);
     
     // Format response
-    const formatted = appointments.map((apt: any) => ({
-      ...apt,
-      date: apt.AppointmentDateTime ? new Date(apt.AppointmentDateTime).toISOString().split('T')[0] : null,
-      time: apt.AppointmentDateTime ? new Date(apt.AppointmentDateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : null,
-      QueueNumber: apt.visitQueueNumber || apt.appointmentQueueNumber,
-      status: apt.VisitID ? apt.VisitStatus : apt.appointmentStatus
-    }));
+    const formatted = appointments.map((apt: any) => {
+      const aptDate = apt.AppointmentDateTime ? new Date(apt.AppointmentDateTime) : null;
+      return {
+        ...apt,
+        date: aptDate ? aptDate.toISOString().split('T')[0] : null,
+        time: apt.start_time ? formatTime(apt.start_time) : null,
+        endTime: apt.end_time ? formatTime(apt.end_time) : null,
+        QueueNumber: apt.visitQueueNumber || apt.appointmentQueueNumber,
+        status: apt.VisitID ? apt.VisitStatus : apt.appointmentStatus
+      };
+    });
     
-    console.log(`Today's appointments (${formatted.length}):`, formatted.map((apt: any) => ({
+    console.log(`Formatted appointments (${formatted.length}):`, formatted.map((apt: any) => ({
       id: apt.AppointmentID,
       patient: apt.patientName,
-      appointmentTime: apt.AppointmentDateTime,
+      date: apt.date,
+      time: apt.time,
+      endTime: apt.endTime,
       doctor: apt.doctorName,
-      doctorId: apt.DoctorID,
       hasVisit: !!apt.VisitID,
       status: apt.status
     })));
     
     res.json({
       success: true,
-      appointments: formatted
+      appointments: formatted,
+      dateInfo: {
+        serverDate: serverNow.toISOString().split('T')[0],
+        serverLocalDate: serverNow.toLocaleDateString(),
+        mysqlDate: dateCheck[0]?.mysql_today,
+        appointmentCount: formatted.length
+      }
     });
     
   } catch (error: any) {
@@ -709,9 +735,28 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
   }
 };
 
+// Helper function to format time (add this to your file)
+function formatTime(timeString: string): string {
+  if (!timeString) return '';
+  const time = timeString.split(':');
+  if (time.length >= 2) {
+    return `${time[0]}:${time[1]}`;
+  }
+  return timeString;
+}
+
 // 2. Check-in appointment (creates patient_visit record AND updates appointment queue)
 export const checkInAppointment = async (req: Request, res: Response) => {
   const { appointmentId, receptionistId } = req.body;
+      const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    
+    console.log('=== DATE DEBUG INFO ===');
+    console.log('Server current time:', now.toString());
+    console.log('Server ISO string:', now.toISOString());
+    console.log('Server local date:', now.toLocaleDateString());
+    console.log('Today variable for query:', today);
+    console.log('Server timezone offset:', now.getTimezoneOffset() / 60, 'hours');
   
   try {
     if (!appointmentId || !receptionistId) {

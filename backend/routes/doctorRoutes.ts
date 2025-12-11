@@ -17,7 +17,10 @@ import {
   getActiveVisit,
   createVisitForVitals,
     getTodayAppointmentsWithVisits,
-  getTodayScheduledAppointments
+  getTodayScheduledAppointments,
+  getScheduledAppointments,
+  getPatientAppointment,
+  getEnhancedPatientQueue
   // Add these to your doctorRoutes.ts
 
 } from "../controllers/doctorController";
@@ -29,6 +32,10 @@ const router = express.Router();
 router.use(verifyToken);
 router.use(requireRole('doctor'));
 
+router.get('/queue-enhanced/:doctorId', getEnhancedPatientQueue);
+router.get('/patient-appointment/:patientId/:doctorId', getPatientAppointment);
+
+router.get('/scheduled-appointments/:doctorId', getScheduledAppointments);
 router.get("/appointments-with-visits/:doctorId", getTodayAppointmentsWithVisits);
 router.get("/appointments-scheduled/:doctorId", getTodayScheduledAppointments);
 
