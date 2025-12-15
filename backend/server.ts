@@ -11,6 +11,8 @@ import doctorRoutes from "./routes/doctorRoutes";
 import receptionistRoutes from "./routes/receptionistRoutes"; 
 import appointmentRoutes from './routes/appointmentRoutes';
 import waitingListRoutes from "./routes/waitingListRoutes";
+import drugRoutes from './routes/drugRoutes';
+import medicalHistoryRoutes from './routes/medicalHistoryRoutes';
 
 // =========== ENVIRONMENT VARIABLE DEBUG ===========
 console.log("=== ENVIRONMENT VARIABLE DEBUG ===");
@@ -152,6 +154,10 @@ app.use("/api/doctor", doctorRoutes);
 app.use("/api/receptionist", receptionistRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/waiting-list', waitingListRoutes);
+
+
+app.use(drugRoutes); 
+app.use(medicalHistoryRoutes); 
 
 // 404 handler for undefined routes
 app.use('*', (req, res) => {

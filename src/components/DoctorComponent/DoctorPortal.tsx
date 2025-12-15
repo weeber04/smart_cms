@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Search, Bell, LogOut, Stethoscope, FileText, Calendar, Users, ClipboardList, User, Heart } from 'lucide-react';
+import { Activity, Search, Bell, LogOut, Stethoscope, FileText, Calendar, Users, ClipboardList, User, Heart, Pill } from 'lucide-react'; // ADDED Pill icon
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -14,12 +14,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ConsultationTab } from './ConsultationTab';
 import { PatientQueue } from './PatientQueue';
-import { Prescription } from './Prescription';
 import { RecentMedicalRecords } from './RecentMedicalRecords';
 import { useAuth } from '../../contexts/AuthContext'; 
+// ADD THIS IMPORT:
+import { PrescriptionTab } from './PrescriptionTab'; // This is the full prescription management tab
 
-export function DoctorPortal() { // REMOVE THE PROPS
- const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'prescriptions' | 'vitals'>('consultation');
+export function DoctorPortal() {
+  // UPDATE activeTab to include 'prescription-mgmt'
+  const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'prescription-mgmt' | 'vitals'>('consultation');
   const [doctorId, setDoctorId] = useState<number | null>(null);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
   const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
@@ -29,7 +31,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
-  const { user, logout } = useAuth(); // ADD THIS LINE
+  const { user, logout } = useAuth();
 
   // Fetch doctor data on component mount
   useEffect(() => {
@@ -38,7 +40,6 @@ export function DoctorPortal() { // REMOVE THE PROPS
         setLoading(true);
         setError(null);
 
-        // Use the user from AuthContext instead of localStorage
         if (!user) {
           throw new Error('No user data found');
         }
@@ -76,7 +77,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
           setTodayAppointments([]);
         }
 
-        // Fetch prescriptions
+        // Fetch prescriptions (recent ones for sidebar)
         const prescriptionsRes = await fetch(`http://localhost:3001/api/doctor/prescriptions/${user.userId}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -103,7 +104,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
     if (user) {
       fetchDoctorData();
     }
-  }, [user]); // ADD user TO DEPENDENCY ARRAY
+  }, [user]);
 
   if (loading) {
     return (
@@ -128,7 +129,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
           <Button onClick={() => window.location.reload()} className="bg-blue-600 hover:bg-blue-700">
             Retry
           </Button>
-          <Button variant="outline" onClick={logout} className="ml-2"> {/* CHANGE onSignOut TO logout */}
+          <Button variant="outline" onClick={logout} className="ml-2">
             Sign Out
           </Button>
         </div>
@@ -192,7 +193,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
             </p>
           </div>
 
-          {/* Tab Navigation */}
+          {/* Tab Navigation - UPDATED */}
           <div className="flex gap-2 border-b">
             <button
               onClick={() => setActiveTab('consultation')}
@@ -217,17 +218,16 @@ export function DoctorPortal() { // REMOVE THE PROPS
               Patient Queue
             </button>
             <button
-              onClick={() => setActiveTab('prescriptions')}
+              onClick={() => setActiveTab('prescription-mgmt')} // CHANGED from 'prescriptions' to 'prescription-mgmt'
               className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'prescriptions'
+                activeTab === 'prescription-mgmt'
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-gray-600 hover:text-gray-900'
               }`}
             >
-              <FileText className="size-4 inline mr-2" />
-              Prescriptions
+              <Pill className="size-4 inline mr-2" /> {/* CHANGED icon */}
+              Prescription Management {/* CHANGED text */}
             </button>
-
           </div>
 
           {activeTab === 'consultation' && (
@@ -243,18 +243,16 @@ export function DoctorPortal() { // REMOVE THE PROPS
             <PatientQueue 
               doctorId={doctorId}
               refreshData={() => {
-                // You might want to refetch data when refreshData is called
-                window.location.reload(); // Or implement a proper refresh function
+                window.location.reload();
               }}
             />
           )}
 
-          {activeTab === 'prescriptions' && (
-            <Prescription 
-              recentPrescriptions={recentPrescriptions}
-            />
+          {activeTab === 'prescription-mgmt' && ( // ADDED this new tab
+            <PrescriptionTab />
           )}
 
+          {/* This is the sidebar component - keep it */}
           <RecentMedicalRecords />
         </div>
       </main>
@@ -270,7 +268,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
           email: doctorProfile?.Email || '',
           phone: doctorProfile?.PhoneNum || '',
           initials: doctorInitials,
-          joinDate: '2024', // You can add this to your database
+          joinDate: '2024',
           specialization: doctorProfile?.Specialization || 'General Medicine',
           certifications: []
         }}
@@ -295,7 +293,7 @@ export function DoctorPortal() { // REMOVE THE PROPS
               variant="destructive"
               onClick={() => {
                 setShowLogoutConfirm(false);
-                logout(); // CHANGE onSignOut() TO logout()
+                logout();
               }}
             >
               <LogOut className="size-4 mr-2" />

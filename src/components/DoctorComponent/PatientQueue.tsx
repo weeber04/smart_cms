@@ -10,10 +10,14 @@ import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Alert, AlertDescription } from '../ui/alert';
+import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 interface PatientQueueProps {
   doctorId: number | null;
   refreshData?: () => void;
+  onStartConsultation?: (patientId: number, patientData: any) => void; // ← ADD THIS
+  onNavigateToConsultation?: (patientId: number) => void; // ← OR THIS
 }
 
 interface PatientVisit {
@@ -60,6 +64,32 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
   const [filterPriority, setFilterPriority] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'list' | 'compact'>('list');
+  const [currentlyCalledPatient, setCurrentlyCalledPatient] = useState<number | null>(null);
+  const [calledPatientData, setCalledPatientData] = useState<any>(null);
+  const navigate = useNavigate();
+
+    const filteredUnassignedPatients = unassignedPatients.filter(patient => {
+    const matchesSearch = patient.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         patient.QueueNumber.includes(searchQuery) ||
+                         patient.VisitNotes?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesPriority = filterPriority === 'all' || patient.TriagePriority === filterPriority;
+    return matchesSearch && matchesPriority;
+  });
+
+  const filteredAssignedPatients = assignedPatients.filter(patient => {
+    const matchesSearch = patient.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         patient.QueueNumber.includes(searchQuery) ||
+                         patient.VisitNotes?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesPriority = filterPriority === 'all' || patient.TriagePriority === filterPriority;
+    return matchesSearch && matchesPriority;
+  });
+
+  const filteredAppointments = appointments.filter(appointment => {
+    const matchesSearch = appointment.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         appointment.VisitNotes?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesPriority = filterPriority === 'all' || appointment.TriagePriority === filterPriority;
+    return matchesSearch && matchesPriority;
+  });
 
   const cn = (...classes: (string | boolean | undefined)[]) => 
     classes.filter(Boolean).join(' ');
@@ -311,28 +341,37 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
     }
   }, [doctorId]);
 
-  const filteredUnassignedPatients = unassignedPatients.filter(patient => {
-    const matchesSearch = patient.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         patient.QueueNumber.includes(searchQuery) ||
-                         patient.VisitNotes?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesPriority = filterPriority === 'all' || patient.TriagePriority === filterPriority;
-    return matchesSearch && matchesPriority;
-  });
-
-  const filteredAssignedPatients = assignedPatients.filter(patient => {
-    const matchesSearch = patient.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         patient.QueueNumber.includes(searchQuery) ||
-                         patient.VisitNotes?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesPriority = filterPriority === 'all' || patient.TriagePriority === filterPriority;
-    return matchesSearch && matchesPriority;
-  });
-
-  const filteredAppointments = appointments.filter(appointment => {
-    const matchesSearch = appointment.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         appointment.VisitNotes?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesPriority = filterPriority === 'all' || appointment.TriagePriority === filterPriority;
-    return matchesSearch && matchesPriority;
-  });
+// Add this useEffect after your other useEffect hooks
+useEffect(() => {
+  const checkActiveConsultation = async () => {
+    if (!doctorId) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/doctor/active-consultation/${doctorId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.patient) {
+          setCurrentlyCalledPatient(data.patient.VisitID);
+          setCalledPatientData(data.patient);
+          toast.info(`Resuming consultation with ${data.patient.PatientName}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking active consultation:', error);
+    }
+  };
+  
+  if (doctorId) {
+    checkActiveConsultation();
+  }
+}, [doctorId]);
 
   const getCurrentPatients = () => {
     switch (activeTab) {
@@ -350,140 +389,166 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
 
   const currentPatients = getCurrentPatients();
 
-  const handleRefresh = async () => {
-    await fetchAllData();
-    if (showDetails) {
-      setExpandedCards(currentPatients.map(p => p.VisitID));
+const handleRefresh = async () => {
+  await fetchAllData();
+  if (showDetails) {
+    setExpandedCards(currentPatients.map(p => p.VisitID));
+  } else {
+    setExpandedCards([]);
+  }
+  toast.success('Queue data refreshed');
+};
+
+const handleClaimPatient = async (visitId: number) => {
+  if (!doctorId) return;
+  
+  setLoading(true);
+  setError(null);
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch("http://localhost:3001/api/doctor/claim-patient", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ visitId, doctorId })
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      // Find and move patient from unassigned to assigned
+      const patientToClaim = unassignedPatients.find(p => p.VisitID === visitId);
+      if (patientToClaim) {
+        const updatedPatient = { 
+          ...patientToClaim, 
+          DoctorID: doctorId, 
+          AssignedDoctorID: doctorId,
+          assignedDoctorName: "You",
+          isAssignedToCurrentDoctor: true
+        };
+        setUnassignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
+        setAssignedPatients(prev => [...prev, updatedPatient]);
+      }
+      await fetchAllData(); // Refresh all data
+      toast.success('Patient claimed successfully!');
     } else {
-      setExpandedCards([]);
+      const errorMsg = result.error || 'Failed to claim patient';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
-  };
+  } catch (error) {
+    console.error("Claim patient error:", error);
+    const errorMsg = "Failed to claim patient. Please try again.";
+    setError(errorMsg);
+    toast.error(errorMsg);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const handleClaimPatient = async (visitId: number) => {
-    if (!doctorId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch("http://localhost:3001/api/doctor/claim-patient", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ visitId, doctorId })
-      });
+const handleCallPatient = async (visitId: number) => {
+  if (!doctorId) return;
+  
+  // Prevent calling if another patient is already in consultation
+  if (currentlyCalledPatient && currentlyCalledPatient !== visitId) {
+    toast.error(`Please complete consultation with patient ${calledPatientData?.PatientName || 'currently in consultation'} first`);
+    return;
+  }
+  
+  setLoading(true);
+  setError(null);
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch("http://localhost:3001/api/doctor/visit-patient", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ visitId, doctorId })
+    });
 
-      const result = await response.json();
+    const result = await response.json();
 
-      if (response.ok && result.success) {
-        // Find and move patient from unassigned to assigned
-        const patientToClaim = unassignedPatients.find(p => p.VisitID === visitId);
-        if (patientToClaim) {
-          const updatedPatient = { 
-            ...patientToClaim, 
-            DoctorID: doctorId, 
-            AssignedDoctorID: doctorId,
-            assignedDoctorName: "You",
-            isAssignedToCurrentDoctor: true
-          };
-          setUnassignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
-          setAssignedPatients(prev => [...prev, updatedPatient]);
-        }
-        await fetchAllData(); // Refresh all data
-      } else {
-        setError(result.error || 'Failed to claim patient');
-      }
-    } catch (error) {
-      console.error("Claim patient error:", error);
-      setError("Failed to claim patient. Please try again.");
-    } finally {
-      setLoading(false);
+    if (response.ok && result.success) {
+      // Set currently called patient
+      setCurrentlyCalledPatient(visitId);
+      setCalledPatientData(result.patient);
+      
+      setSelectedPatientId(visitId);
+      
+      // Update patient status locally
+      const updatePatientStatus = (patients: PatientVisit[]) =>
+        patients.map(patient => 
+          patient.VisitID === visitId && patient.isAssignedToCurrentDoctor
+            ? { 
+                ...patient, 
+                QueueStatus: 'in-progress' as const,
+                VisitStatus: 'in-consultation' as const,
+                CalledTime: new Date().toISOString()
+              }
+            : patient
+        );
+      
+      setAssignedPatients(updatePatientStatus);
+      await fetchAllData(); // Refresh data
+      
+      toast.success(`Started consultation with ${result.patient?.PatientName || 'patient'}`);
+    } else {
+      setError(result.error || 'Failed to call patient');
     }
-  };
+  } catch (error) {
+    console.error("Call patient error:", error);
+    setError("Failed to call patient. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const handleCallPatient = async (visitId: number) => {
-    if (!doctorId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch("http://localhost:3001/api/doctor/visit-patient", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ visitId, doctorId })
-      });
+const handleCompleteVisit = async (visitId: number) => {
+  if (!doctorId) return;
+  
+  setLoading(true);
+  setError(null);
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ visitId, doctorId })
+    });
 
-      const result = await response.json();
+    const result = await response.json();
 
-      if (response.ok && result.success) {
-        setSelectedPatientId(visitId);
-        // Update patient status locally
-        const updatePatientStatus = (patients: PatientVisit[]) =>
-          patients.map(patient => 
-            patient.VisitID === visitId && patient.isAssignedToCurrentDoctor
-              ? { 
-                  ...patient, 
-                  QueueStatus: 'in-progress' as const,
-                  VisitStatus: 'in-consultation' as const,
-                  CalledTime: new Date().toISOString()
-                }
-              : patient
-          );
-        
-        setAssignedPatients(updatePatientStatus);
-        await fetchAllData(); // Refresh data
-      } else {
-        setError(result.error || 'Failed to call patient');
-      }
-    } catch (error) {
-      console.error("Call patient error:", error);
-      setError("Failed to call patient. Please try again.");
-    } finally {
-      setLoading(false);
+    if (response.ok && result.success) {
+      // Clear currently called patient
+      setCurrentlyCalledPatient(null);
+      setCalledPatientData(null);
+      setSelectedPatientId(null);
+      
+      // Remove from assigned patients
+      setAssignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
+      setPatientsSeenToday(prev => prev + 1);
+      setPatientsWaiting(prev => Math.max(0, prev - 1));
+      
+      await fetchAllData(); // Refresh data
+      
+      toast.success('Consultation completed successfully');
+    } else {
+      setError(result.error || 'Failed to complete visit');
     }
-  };
-
-  const handleCompleteVisit = async (visitId: number) => {
-    if (!doctorId) return;
-    
-    setLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ visitId, doctorId })
-      });
-
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        setSelectedPatientId(null);
-        // Remove from assigned patients
-        setAssignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
-        setPatientsSeenToday(prev => prev + 1);
-        setPatientsWaiting(prev => Math.max(0, prev - 1));
-        await fetchAllData(); // Refresh data
-      } else {
-        setError(result.error || 'Failed to complete visit');
-      }
-    } catch (error) {
-      console.error("Complete visit error:", error);
-      setError("Failed to complete visit. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (error) {
+    console.error("Complete visit error:", error);
+    setError("Failed to complete visit. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const toggleCardExpansion = (visitId: number) => {
     setExpandedCards(prev =>
@@ -582,29 +647,42 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       return <Badge variant={isAppointment ? "outline" : "default"} className={className}>{text}</Badge>;
     };
 
-    const getButtonConfig = () => {
-      // If patient is assigned to another doctor, disable all actions
-      if (isAssignedToOtherDoctor) {
-        return {
-          text: `With Dr. ${patient.assignedDoctorName || 'Another Doctor'}`,
-          variant: 'outline' as const,
-          className: 'border-gray-300 text-gray-500 bg-gray-50',
-          disabled: true,
-          onClick: null,
-          icon: <User className="size-3 mr-1" />
-        };
-      }
+const getButtonConfig = () => {
+  // If patient is assigned to another doctor, disable all actions
+  if (isAssignedToOtherDoctor) {
+    return {
+      text: `With Dr. ${patient.assignedDoctorName || 'Another Doctor'}`,
+      variant: 'outline' as const,
+      className: 'border-gray-300 text-gray-500 bg-gray-50',
+      disabled: true,
+      onClick: null,
+      icon: <User className="size-3 mr-1" />
+    };
+  }
+  
+  // Check if doctor is busy with another patient
+  if (currentlyCalledPatient && currentlyCalledPatient !== patient.VisitID) {
+    return {
+      text: 'Doctor Busy',
+      variant: 'outline' as const,
+      className: 'border-gray-300 text-gray-500 bg-gray-50',
+      disabled: true,
+      onClick: null,
+      icon: <Clock className="size-3 mr-1" />
+    };
+  }
       
-      if (isAppointment) {
-        return {
-          text: 'Scheduled',
-          variant: 'outline' as const,
-          className: 'border-indigo-300 text-indigo-700 bg-indigo-50',
-          disabled: true,
-          onClick: null,
-          icon: <Calendar className="size-3 mr-1" />
-        };
-      }
+  if (isAppointment) {
+    return {
+      text: 'Scheduled',
+      variant: 'outline' as const,
+      className: 'border-indigo-300 text-indigo-700 bg-indigo-50',
+      disabled: true,
+      onClick: null,
+      icon: <Calendar className="size-3 mr-1" />
+    };
+  }
+  
       
       if (isInProgress && isAssignedToMe) {
         return {
@@ -962,19 +1040,69 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
       </div>
 
       {error && (
-        <Alert variant="destructive">
-          <XCircle className="size-4" />
-          <AlertDescription>{error}</AlertDescription>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setError(null)}
-            className="ml-auto"
-          >
-            Dismiss
-          </Button>
-        </Alert>
-      )}
+  <Alert variant="destructive">
+    <XCircle className="size-4" />
+    <AlertDescription>{error}</AlertDescription>
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => setError(null)}
+      className="ml-auto"
+    >
+      Dismiss
+    </Button>
+  </Alert>
+)}
+
+{/* ADD THIS SECTION - Currently Called Patient Banner */}
+{currentlyCalledPatient && calledPatientData && (
+  <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4 rounded-r">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="size-10 flex items-center justify-center rounded-full bg-blue-100 text-blue-700 font-semibold">
+          <User className="size-5" />
+        </div>
+        <div>
+          <h3 className="font-medium text-blue-900">Currently in Consultation</h3>
+          <p className="text-sm text-blue-700">
+            Patient: {calledPatientData.PatientName} • Queue: {calledPatientData.QueueNumber}
+          </p>
+          <p className="text-xs text-blue-600">
+            Started: {calledPatientData.CalledTime ? new Date(calledPatientData.CalledTime).toLocaleTimeString() : 'Now'}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+{/* <Button
+  variant="outline"
+  size="sm"
+  className="border-blue-300 text-blue-700 hover:bg-blue-100"
+  onClick={() => {
+    // Navigate to doctor consultation page
+    navigate('/doctor/consultation', {
+      state: {
+        patientId: currentlyCalledPatient,
+        patientData: calledPatientData,
+        doctorId: doctorId
+      }
+    });
+  }}
+>
+  Go to Consultation
+</Button> */}
+        <Button
+          variant="default"
+          size="sm"
+          className="bg-red-600 hover:bg-red-700"
+          onClick={() => handleCompleteVisit(currentlyCalledPatient)}
+          disabled={loading}
+        >
+          Complete Visit
+        </Button>
+      </div>
+    </div>
+  </div>
+)}
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
