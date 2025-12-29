@@ -45,8 +45,6 @@ console.log("🌐 NODE_ENV:", process.env.NODE_ENV || "development");
 console.log("🚪 PORT:", process.env.PORT || "3001 (default)");
 console.log("==================================");
 
-
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -78,33 +76,6 @@ app.use(session({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
-
-console.log("=== ENVIRONMENT VARIABLE DEBUG ===");
-console.log("Current directory:", process.cwd());
-console.log("NODE_ENV:", process.env.NODE_ENV);
-
-// Try different .env file loading methods
-try {
-  // Method 1: Load from specific path
-  const envPath = path.join(process.cwd(), '.env');
-  console.log("Looking for .env at:", envPath);
-  
-  // Method 2: Load with explicit path
-  const result = dotenv.config({ path: envPath });
-  if (result.error) {
-    console.error("❌ Error loading .env file:", result.error);
-  } else {
-    console.log("✅ .env file loaded successfully");
-  }
-} catch (error) {
-  console.error("❌ Failed to load .env:", error);
-}
-
-// Check if JWT_SECRET is loaded
-console.log("🔑 JWT_SECENT loaded:", process.env.JWT_SECRET ? "YES" : "NO");
-console.log("JWT_SECENT first 5 chars:", process.env.JWT_SECRET ? process.env.JWT_SECRET.substring(0, 5) + "..." : "NOT SET");
-console.log("DB_NAME loaded:", process.env.DB_NAME ? "YES" : "NO");
-console.log("==================================");
 
 // Body parsers
 app.use(express.json());

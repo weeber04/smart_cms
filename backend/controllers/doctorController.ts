@@ -293,8 +293,6 @@ export const getTodayAppointments = async (req: Request, res: Response) => {
 };
 
 
-
-
 // Alternative: Get appointments that have corresponding patient_visit entries
 export const getTodayAppointmentsWithVisits = async (req: Request, res: Response) => {
   const { doctorId } = req.params;
@@ -2374,6 +2372,343 @@ export const saveComprehensiveConsultation = async (req: Request, res: Response)
     res.status(500).json({ 
       success: false,
       error: "Failed to save consultation" 
+    });
+  }
+};
+
+// In your doctor controller file - ADD THIS NEW FUNCTION
+export const saveConsultationForm = async (req: Request, res: Response) => {
+  console.log('=== SAVE CONSULTATION FORM START ===');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  
+  // Define variables in outer scope
+  let visitId: number;
+  let consultationId: number;
+  let existingConsultation: any[] = [];
+  
+  try {
+    const {
+      patientId,
+      doctorId,
+      chiefComplaint,
+      historyOfPresentIllness,
+      diagnosis,
+      diagnosisCode,
+      treatmentPlan,
+      consultationNotes,
+      followUpInstructions,
+      followUpDate,
+      pastMedicalHistory,
+      socialHistory,
+      reviewOfSystems,
+      physicalExamFindings,
+      medicationPlan,
+      nonMedicationPlan,
+      patientEducation,
+      lifestyleAdvice,
+      warningSigns,
+      disposition,
+      referralNeeded,
+      referralNotes,
+      severity,
+      duration,
+      severityAssessment,
+      differentialDiagnosis,
+      familyHistory
+    } = req.body;
+    
+    // Validate required fields
+    if (!patientId || !doctorId) {
+      console.error('Missing required fields: patientId or doctorId');
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: patientId and doctorId are required'
+      });
+    }
+
+    // Convert to numbers for safety
+    const patientIdNum = parseInt(patientId);
+    const doctorIdNum = parseInt(doctorId);
+    
+    console.log('Starting transaction...');
+    await db.query('START TRANSACTION');
+
+    // ======================
+    // 1. FIND OR CREATE VISIT
+    // ======================
+    console.log('1. Finding or creating visit for patient:', patientIdNum);
+    
+    try {
+      const [activeVisit]: any = await db.query(`
+        SELECT VisitID FROM patient_visit 
+        WHERE PatientID = ? 
+          AND DATE(ArrivalTime) = CURDATE()
+          AND VisitStatus NOT IN ('completed', 'cancelled')
+        ORDER BY ArrivalTime DESC
+        LIMIT 1
+      `, [patientIdNum]);
+
+      console.log('Active visit query result:', activeVisit);
+
+      if (activeVisit.length === 0) {
+        console.log('No active visit found. Creating new visit...');
+        const [visit]: any = await db.query(`
+          INSERT INTO patient_visit 
+          (PatientID, DoctorID, VisitType, ArrivalTime, CheckInTime, VisitStatus, QueueStatus, VisitNotes)
+          VALUES (?, ?, 'consultation', NOW(), NOW(), 'in-consultation', 'in-progress', ?)
+        `, [patientIdNum, doctorIdNum, chiefComplaint || 'Consultation']);
+        
+        visitId = visit.insertId;
+        console.log('New visit created with ID:', visitId);
+      } else {
+        visitId = activeVisit[0].VisitID;
+        console.log('Using existing visit ID:', visitId);
+        
+        // Update visit status
+        console.log('Updating visit status...');
+        await db.query(`
+          UPDATE patient_visit 
+          SET 
+            VisitStatus = 'in-consultation',
+            QueueStatus = 'in-progress',
+            DoctorID = ?,
+            UpdatedAt = NOW()
+          WHERE VisitID = ?
+        `, [doctorIdNum, visitId]);
+      }
+    } catch (visitError: any) {
+      console.error('Error in visit handling:', visitError);
+      throw new Error(`Visit handling failed: ${visitError.message}`);
+    }
+
+    // ======================
+    // 2. PARSE JSON DATA
+    // ======================
+    console.log('2. Parsing JSON data...');
+    
+    let parsedPhysicalExamFindings = {};
+    try {
+      if (physicalExamFindings) {
+        if (typeof physicalExamFindings === 'string') {
+          parsedPhysicalExamFindings = JSON.parse(physicalExamFindings);
+          console.log('Parsed physical exam findings:', parsedPhysicalExamFindings);
+        } else if (typeof physicalExamFindings === 'object') {
+          parsedPhysicalExamFindings = physicalExamFindings;
+        }
+      }
+    } catch (parseError) {
+      console.warn('Warning: Could not parse physicalExamFindings, using empty object');
+      parsedPhysicalExamFindings = {};
+    }
+
+    // ======================
+    // 3. CREATE/UPDATE CONSULTATION
+    // ======================
+    console.log('3. Creating/updating consultation...');
+    
+    try {
+      // Check if consultation already exists for this visit
+      const [consultationCheck]: any = await db.query(`
+        SELECT ConsultationID FROM consultation WHERE VisitID = ?
+      `, [visitId]);
+
+      console.log('Existing consultation check:', consultationCheck);
+      
+      // Store in outer variable
+      existingConsultation = consultationCheck;
+
+      if (existingConsultation.length === 0) {
+        console.log('Creating new consultation...');
+        const [consultation]: any = await db.query(`
+          INSERT INTO consultation 
+          (VisitID, DoctorID, StartTime, ChiefComplaint, HistoryOfPresentIllness, 
+           PhysicalExamFindings, Diagnosis, DiagnosisCode, TreatmentPlan, 
+           ConsultationNotes, FollowUpInstructions, FollowUpDate)
+          VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          visitId, 
+          doctorIdNum, 
+          chiefComplaint || '', 
+          historyOfPresentIllness || '',
+          JSON.stringify(parsedPhysicalExamFindings),
+          diagnosis || '', 
+          diagnosisCode || '', 
+          treatmentPlan || '',
+          consultationNotes || '', 
+          followUpInstructions || '', 
+          followUpDate || null
+        ]);
+        
+        consultationId = consultation.insertId;
+        console.log('New consultation created with ID:', consultationId);
+      } else {
+        consultationId = existingConsultation[0].ConsultationID;
+        console.log('Updating existing consultation ID:', consultationId);
+        
+        await db.query(`
+          UPDATE consultation 
+          SET 
+            ChiefComplaint = ?,
+            HistoryOfPresentIllness = ?,
+            PhysicalExamFindings = ?,
+            Diagnosis = ?,
+            DiagnosisCode = ?,
+            TreatmentPlan = ?,
+            ConsultationNotes = ?,
+            FollowUpInstructions = ?,
+            FollowUpDate = ?,
+            UpdatedAt = NOW()
+          WHERE ConsultationID = ?
+        `, [
+          chiefComplaint || '', 
+          historyOfPresentIllness || '',
+          JSON.stringify(parsedPhysicalExamFindings),
+          diagnosis || '', 
+          diagnosisCode || '', 
+          treatmentPlan || '', 
+          consultationNotes || '',
+          followUpInstructions || '', 
+          followUpDate || null, 
+          consultationId
+        ]);
+        console.log('Consultation updated successfully');
+      }
+    } catch (consultationError: any) {
+      console.error('Error in consultation handling:', consultationError);
+      throw new Error(`Consultation handling failed: ${consultationError.message}`);
+    }
+
+    // ======================
+    // 4. CREATE MEDICAL HISTORY (OPTIONAL)
+    // ======================
+    console.log('4. Creating medical history entries...');
+    
+    try {
+      if (diagnosis?.trim()) {
+        const currentDate = new Date().toISOString().split('T')[0];
+        
+        // Check if entry already exists
+        const [existing]: any = await db.query(`
+          SELECT HistoryID FROM medical_history 
+          WHERE PatientID = ? AND ConsultationID = ? AND RecordName = ?
+        `, [patientIdNum, consultationId, diagnosis]);
+
+        if (existing.length === 0) {
+          console.log('Creating new medical history entry for diagnosis:', diagnosis);
+          
+          await db.query(`
+            INSERT INTO medical_history 
+            (PatientID, ConsultationID, VisitID, RecordType, RecordName, 
+             Description, Status, StartDate, Severity, Notes, CreatedBy, CreatedAt, UpdatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+          `, [
+            patientIdNum,
+            consultationId,
+            visitId || null,
+            'condition',
+            diagnosis,
+            `Primary diagnosis: ${diagnosis}\nCode: ${diagnosisCode || 'N/A'}`,
+            'active',
+            currentDate,
+            severityAssessment || severity || 'moderate',
+            consultationNotes || null,
+            doctorIdNum
+          ]);
+          
+          console.log('Medical history entry created successfully');
+        } else {
+          console.log('Medical history entry already exists');
+        }
+      } else {
+        console.log('No diagnosis provided, skipping medical history');
+      }
+    } catch (historyError: any) {
+      console.warn('Warning: Failed to create medical history entry:', historyError);
+      // Don't fail the transaction for medical history errors
+    }
+
+    // ======================
+    // 5. COMMIT TRANSACTION
+    // ======================
+    console.log('5. Committing transaction...');
+    await db.query('COMMIT');
+
+    console.log('=== SAVE CONSULTATION FORM SUCCESS ===');
+    
+    res.json({ 
+      success: true,
+      message: "Consultation form saved successfully",
+      consultationId: consultationId,
+      visitId: visitId,
+      isNew: existingConsultation.length === 0
+    });
+    
+  } catch (error: any) {
+    console.error('=== SAVE CONSULTATION FORM ERROR ===');
+    console.error('Error:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    try {
+      await db.query('ROLLBACK');
+      console.log('Transaction rolled back');
+    } catch (rollbackError) {
+      console.error('Rollback error:', rollbackError);
+    }
+
+    // Provide detailed error response
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to save consultation form",
+      message: error.message,
+      sqlMessage: error.sqlMessage || 'No SQL error',
+      code: error.code,
+      errno: error.errno
+    });
+  }
+};
+
+// KEEP THE OLD FUNCTION BUT RENAME IT for completing consultation later
+export const completeConsultation = async (req: Request, res: Response) => {
+  const { consultationId, visitId, patientId, doctorId } = req.body;
+  
+  try {
+    await db.query('START TRANSACTION');
+    
+    // Update consultation with EndTime
+    await db.query(`
+      UPDATE consultation 
+      SET 
+        EndTime = NOW(),
+        UpdatedAt = NOW()
+      WHERE ConsultationID = ?
+    `, [consultationId]);
+    
+    // Update visit status to completed
+    await db.query(`
+      UPDATE patient_visit 
+      SET 
+        VisitStatus = 'completed',
+        QueueStatus = 'completed',
+        CheckOutTime = NOW(),
+        UpdatedAt = NOW()
+      WHERE VisitID = ?
+    `, [visitId]);
+    
+    await db.query('COMMIT');
+    
+    res.json({ 
+      success: true,
+      message: "Consultation completed successfully",
+      consultationId: consultationId,
+      visitId: visitId
+    });
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error("Complete consultation error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to complete consultation" 
     });
   }
 };

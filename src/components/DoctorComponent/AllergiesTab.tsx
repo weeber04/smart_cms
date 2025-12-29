@@ -1,4 +1,5 @@
 // AllergiesTab.tsx
+import { useState } from 'react'; // ADD THIS IMPORT
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -14,6 +15,7 @@ interface AllergiesTabProps {
   onBackToConsultation: () => void;
   allergyForm: any;
   onAllergyFormChange: (form: any) => void;
+  isSaving?: boolean;
 }
 
 export function AllergiesTab({ 
@@ -21,8 +23,12 @@ export function AllergiesTab({
   onSaveAllergy, 
   onBackToConsultation,
   allergyForm,
-  onAllergyFormChange
+  onAllergyFormChange,
+  isSaving = false
 }: AllergiesTabProps) {
+  // Add this state in your component
+  const [showAllergyHistory, setShowAllergyHistory] = useState(false); // MOVED THIS LINE AFTER useState IMPORT
+
   const getSeverityColor = (severity: string) => {
     switch(severity) {
       case 'mild': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
@@ -128,11 +134,21 @@ export function AllergiesTab({
           <Button 
             className="bg-blue-600 hover:bg-blue-700"
             onClick={handleSubmit}
-            disabled={!allergyForm.AllergyName.trim() || !allergyForm.Reaction.trim()}
+            disabled={!allergyForm.AllergyName.trim() || !allergyForm.Reaction.trim() || isSaving}
           >
-            Save Allergy Finding
+            {isSaving ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Saving...
+              </>
+            ) : (
+              'Save Allergy Finding'
+            )}
           </Button>
-          <Button 
+                    <Button 
             variant="outline"
             onClick={onBackToConsultation}
           >
@@ -143,41 +159,61 @@ export function AllergiesTab({
 
       {allergies.length > 0 && (
         <div className="pt-6 border-t">
-          <h3 className="text-lg font-semibold mb-4">Allergy History</h3>
-          <div className="space-y-3">
-            {allergies.map((allergy, index) => (
-              <Card key={index}>
-                <CardContent className="p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h4 className="font-medium text-gray-900">{allergy.AllergyName}</h4>
-                      <p className="text-sm text-gray-600">Reaction: {allergy.Reaction}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <Badge className={getSeverityColor(allergy.Severity)}>
-                        {allergy.Severity}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {allergy.Status}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-600">Onset Date</p>
-                      <p className="text-gray-900">{new Date(allergy.OnsetDate).toLocaleDateString()}</p>
-                    </div>
-                    {allergy.Notes && (
-                      <div className="col-span-2">
-                        <p className="text-gray-600">Notes</p>
-                        <p className="text-gray-900">{allergy.Notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Allergy History</h3>
+            <button
+              onClick={() => setShowAllergyHistory(!showAllergyHistory)}
+              className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+            >
+              {showAllergyHistory ? 'Hide History' : 'Show History'}
+              <svg
+                className={`w-4 h-4 transition-transform ${showAllergyHistory ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
           </div>
+          
+          {showAllergyHistory && (
+            <div className="space-y-3">
+              {allergies.map((allergy, index) => (
+                <Card key={index}>
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="font-medium text-gray-900">{allergy.AllergyName}</h4>
+                        <p className="text-sm text-gray-600">Reaction: {allergy.Reaction}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <Badge className={getSeverityColor(allergy.Severity)}>
+                          {allergy.Severity}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {allergy.Status}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-gray-600">Onset Date</p>
+                        <p className="text-gray-900">{new Date(allergy.OnsetDate).toLocaleDateString()}</p>
+                      </div>
+                      {allergy.Notes && (
+                        <div className="col-span-2">
+                          <p className="text-gray-600">Notes</p>
+                          <p className="text-gray-900">{allergy.Notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

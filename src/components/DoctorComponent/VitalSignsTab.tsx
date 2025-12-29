@@ -237,7 +237,7 @@ export function VitalSignsTab() {
     };
     
     try {
-      const response = await fetch('http://localhost:3001/api/doctor/vitals/save', {
+      const response = await fetch('http://localhost:3001/api/doctor/vital-signs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

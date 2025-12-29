@@ -108,12 +108,14 @@ export type ConsultationFormData = {
   referralNotes: string;
 };
 
-export type ConsultationTabProps = {
-  doctorId: number | null;
+// In your types.ts file, add to ConsultationTabProps interface
+export interface ConsultationTabProps {
+  doctorId: number;
   doctorProfile: any;
   todayAppointments: any[];
   setTodayAppointments: (appointments: any[]) => void;
-};
+  onCompleteConsultation?: () => void; // Add this line
+}
 
 export type AllergyFormData = {
   AllergyName: string;

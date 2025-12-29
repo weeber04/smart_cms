@@ -36,7 +36,10 @@ import {
   getAllTodayAppointments,
   getConsultationQueue,
   getCalledPatients,
-  getActiveConsultation
+  getActiveConsultation,
+  completeConsultation,
+  saveConsultationForm
+
   // Add these to your doctorRoutes.ts
 
 } from "../controllers/doctorController";
@@ -105,6 +108,11 @@ router.post('/save-allergy', saveAllergyFinding);
 router.get('/patient/:patientId/medical-conditions', getPatientMedicalConditions);
 router.post('/save-medical-condition', saveMedicalCondition);
 router.get('/patient/:patientId/visits', getPatientVisits);
+
+// In your doctor routes file
+router.post('/save-consultation-form', saveConsultationForm); // For saving form only
+router.post('/complete-consultation', completeConsultation); // For final completion
+router.post('/save-consultation-full',saveConsultationFull); // Keep the old one for backward compatibility
 
 // Consultation endpoints
 router.post('/save-comprehensive-consultation', saveComprehensiveConsultation);
