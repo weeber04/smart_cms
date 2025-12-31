@@ -13,6 +13,11 @@ import appointmentRoutes from './routes/appointmentRoutes';
 import waitingListRoutes from "./routes/waitingListRoutes";
 import drugRoutes from './routes/drugRoutes';
 import medicalHistoryRoutes from './routes/medicalHistoryRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
+import drugRequestRoutes from './routes/drugRequestRoutes';
+import settingsRoutes from "./routes/settingsRoutes";
+import pharmacistRoutes from './routes/pharmacistRoutes'; // ADDED: Import pharmacist routes
 
 // =========== ENVIRONMENT VARIABLE DEBUG ===========
 console.log("=== ENVIRONMENT VARIABLE DEBUG ===");
@@ -45,6 +50,9 @@ console.log("🌐 NODE_ENV:", process.env.NODE_ENV || "development");
 console.log("🚪 PORT:", process.env.PORT || "3001 (default)");
 console.log("==================================");
 
+// IMPORTANT: Import db for scanner routes
+import { db } from './db'; // ADDED: Import database connection
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -76,6 +84,33 @@ app.use(session({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
+
+console.log("=== ENVIRONMENT VARIABLE DEBUG ===");
+console.log("Current directory:", process.cwd());
+console.log("NODE_ENV:", process.env.NODE_ENV);
+
+// Try different .env file loading methods
+try {
+  // Method 1: Load from specific path
+  const envPath = path.join(process.cwd(), '.env');
+  console.log("Looking for .env at:", envPath);
+  
+  // Method 2: Load with explicit path
+  const result = dotenv.config({ path: envPath });
+  if (result.error) {
+    console.error("❌ Error loading .env file:", result.error);
+  } else {
+    console.log("✅ .env file loaded successfully");
+  }
+} catch (error) {
+  console.error("❌ Failed to load .env:", error);
+}
+
+// Check if JWT_SECRET is loaded
+console.log("🔑 JWT_SECENT loaded:", process.env.JWT_SECRET ? "YES" : "NO");
+console.log("JWT_SECENT first 5 chars:", process.env.JWT_SECRET ? process.env.JWT_SECRET.substring(0, 5) + "..." : "NOT SET");
+console.log("DB_NAME loaded:", process.env.DB_NAME ? "YES" : "NO");
+console.log("==================================");
 
 // Body parsers
 app.use(express.json());
@@ -117,6 +152,95 @@ app.get('/api/debug', (req, res) => {
   });
 });
 
+// ==========================================
+// 🛒 SCANNER & INVENTORY ROUTES (FROM PHARMACIST SYSTEM)
+// ==========================================
+
+// 1. SCAN API (Handles Dispense & Check)
+app.post('/api/scan', async (req: any, res: any) => {
+    const { barcode, mode } = req.body; 
+    const userId = req.session?.user?.id || 1; 
+
+    try {
+        // CORRECTION: Used 'BarcodeID' instead of 'barcode_id'
+        const [rows]: any = await db.query('SELECT * FROM Drug WHERE BarcodeID = ?', [barcode]);
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Item not found' });
+        }
+
+        const drug = rows[0];
+
+        // MODE: CHECK (For Restock Dialog)
+        if (mode === 'check') {
+            return res.json({
+                status: 'success',
+                drug: {
+                    id: drug.DrugID,
+                    name: drug.DrugName,
+                    stock: drug.QuantityInStock,
+                    location: drug.Location || 'Pharmacy'
+                }
+            });
+        }
+
+        // MODE: DISPENSE (Deduct Stock)
+        if (mode === 'dispense') {
+            const newQty = drug.QuantityInStock - 1;
+            
+            if (newQty < 0) {
+                 return res.json({ status: 'error', message: 'Out of stock' });
+            }
+
+            // Update Stock
+            await db.query('UPDATE Drug SET QuantityInStock = ? WHERE DrugID = ?', [newQty, drug.DrugID]);
+            
+            // Log Transaction
+            await db.query(
+                "INSERT INTO InventoryLog (Action, QuantityChange, DrugID, PerformedBy) VALUES ('IOT_SCAN_OUT', -1, ?, ?)", 
+                [drug.DrugID, userId]
+            );
+
+            return res.json({
+                status: 'success',
+                message: 'Dispensed successfully',
+                drug: drug.DrugName,
+                remaining: newQty
+            });
+        }
+    } catch (error: any) {
+        console.error("Scanner Error:", error);
+        return res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
+// 2. RESTOCK API (Adds Stock)
+app.post('/api/restock', async (req: any, res: any) => {
+    const { drug_id, quantity } = req.body;
+    const userId = req.session?.user?.id || 1;
+
+    try {
+        const qtyNum = parseInt(quantity);
+        
+        const [result]: any = await db.query(
+            'UPDATE Drug SET QuantityInStock = QuantityInStock + ? WHERE DrugID = ?', 
+            [qtyNum, drug_id]
+        );
+
+        if (result.affectedRows > 0) {
+             await db.query(
+                "INSERT INTO InventoryLog (Action, QuantityChange, DrugID, PerformedBy) VALUES ('RESTOCK', ?, ?, ?)", 
+                [qtyNum, drug_id, userId]
+            );
+             return res.json({ status: 'success', message: 'Stock updated' });
+        } else {
+             return res.json({ status: 'error', message: 'Update failed' });
+        }
+    } catch (error: any) {
+        return res.status(500).json({ status: 'error', message: 'Database error' });
+    }
+});
+
 // API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
@@ -125,7 +249,11 @@ app.use("/api/doctor", doctorRoutes);
 app.use("/api/receptionist", receptionistRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/waiting-list', waitingListRoutes);
-
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/admin/drug-requests', drugRequestRoutes);
+app.use("/api/settings", settingsRoutes);
+app.use('/api/pharmacist', pharmacistRoutes); // ADDED: Pharmacist routes
 
 app.use(drugRoutes); 
 app.use(medicalHistoryRoutes); 
@@ -182,6 +310,13 @@ const server = app.listen(PORT, () => {
   📋 Reception: http://localhost:${PORT}/api/receptionist
   📅 Appointments: http://localhost:${PORT}/api/appointments
   🏥 Waiting List: http://localhost:${PORT}/api/waiting-list
+  💊 Pharmacist: http://localhost:${PORT}/api/pharmacist
+  📊 Dashboard: http://localhost:${PORT}/api/dashboard
+  📈 Analytics: http://localhost:${PORT}/api/analytics
+  💊 Drug Requests: http://localhost:${PORT}/api/admin/drug-requests
+  ⚙️ Settings: http://localhost:${PORT}/api/settings
+  🔍 Scanner:   http://localhost:${PORT}/api/scan
+  📦 Restock:   http://localhost:${PORT}/api/restock
   ❤️ Health:    http://localhost:${PORT}/api/health
   🐛 Debug:     http://localhost:${PORT}/api/debug
   `);

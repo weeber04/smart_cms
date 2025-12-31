@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 
-export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
+export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showProfile, setShowProfile] = useState(false);
   const [showAddItem, setShowAddItem] = useState(false);

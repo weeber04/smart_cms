@@ -489,14 +489,6 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                       <>
                         <Button 
                           size="sm" 
-                          variant="outline" 
-                          className="flex-1"
-                          onClick={() => handleMarkAsNoShow(visit.VisitID)}
-                        >
-                          No Show
-                        </Button>
-                        <Button 
-                          size="sm" 
                           variant="destructive" 
                           className="flex-1"
                           onClick={() => setCancelVisitId(visit.VisitID)}

@@ -1,4 +1,4 @@
-// SIMPLEST FIX - App.tsx
+// App.tsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -6,9 +6,11 @@ import { SignInPage } from './components/AdminComponent/SignInPage';
 import { Dashboard } from './components/AdminComponent/Dashboard';
 import { DoctorPortal } from './components/DoctorComponent/DoctorPortal';
 import { ReceptionistPortal } from './components/ReceptionistComponent/ReceptionistPortal';
+import { PharmacistPortal } from './components/PharmacistComponent/PharmacistPortal'; 
+import { PharmacistPortal2 } from './components/PharmacistPortal2'; 
 
 export default function App() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth(); // Added logout from context
 
   if (isLoading) {
     return (
@@ -38,6 +40,8 @@ export default function App() {
               <Navigate to="/doctor" replace />
             ) : user.role === 'Receptionist' || user.role === 'receptionist' ? (
               <Navigate to="/receptionist" replace />
+            ) : user.role === 'Pharmacist' || user.role === 'pharmacist' ? ( // Added Pharmacist redirect logic
+              <Navigate to="/pharmacist" replace />
             ) : (
               <Navigate to="/signin" replace />
             )}
@@ -61,6 +65,15 @@ export default function App() {
             <ReceptionistPortal />
           </ProtectedRoute>
         } />
+
+        {/* Added Pharmacist Portal Route */}
+        <Route path="/pharmacist/*" element={
+          <ProtectedRoute requiredRole={['Pharmacist', 'pharmacist']}>
+            <PharmacistPortal onSignOut={logout} />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/test-pharmacist" element={<PharmacistPortal2 onSignOut={() => window.location.reload()} />} />
 
         {/* Catch-all route */}
         <Route path="*" element={<Navigate to="/" replace />} />

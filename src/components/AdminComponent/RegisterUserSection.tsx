@@ -103,6 +103,7 @@ export function RegisterUserSection() {
 
       if (!response.ok) {
         setError(result.message || "Failed to register user");
+        setLoading(false);
         return;
       }
 

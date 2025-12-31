@@ -660,7 +660,7 @@ const fetchTodayAppointments = async () => {
             )}
           </Button>
           
-          {isPastAppointment && (
+          {/* {isPastAppointment && (
             <Button 
               size="sm" 
               variant="outline"
@@ -673,7 +673,7 @@ const fetchTodayAppointments = async () => {
               <AlertCircle className="size-3 mr-1" />
               No Show
             </Button>
-          )}
+          )} */}
           
           <Button 
             size="sm" 

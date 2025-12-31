@@ -176,7 +176,17 @@ const handleSubmit = async (e: React.FormEvent) => {
   >
     🔧 Test Error Display
   </Button>
-</div>
+    <div className="mt-4 pt-4 border-t">
+      <p className="text-sm text-gray-600 mb-2">Developer Testing:</p>
+      <Button 
+        type="button"
+        onClick={() => navigate('/test-pharmacist')}
+        className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+      >
+        🧪 Test Pharmacist Portal (No Login Required)
+      </Button>
+    </div>
+    </div>
             </CardContent>
           </Card>
         </main>
