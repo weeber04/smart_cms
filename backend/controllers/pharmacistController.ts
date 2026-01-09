@@ -57,3 +57,129 @@ export const dispenseMedication = async (req: Request, res: Response) => {
     res.status(500).json({ success: false });
   }
 };
+
+// pharmacistController.ts
+export const dispensePrescriptionItem = async (req: Request, res: Response) => {
+  try {
+    const { itemId, batchNumber, quantityDispensed, notes } = req.body;
+    const pharmacistId = (req as any).user?.userId;
+    
+    if (!pharmacistId) {
+      return res.status(400).json({ error: "Pharmacist ID not found" });
+    }
+    
+    if (!itemId || !quantityDispensed) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    
+    await db.query("START TRANSACTION");
+    
+    // 1. Get prescription item details
+    const [itemDetails]: any = await db.query(`
+      SELECT pi.*, d.QuantityInStock, d.DrugName
+      FROM prescriptionitem pi
+      JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE pi.ItemID = ?
+    `, [itemId]);
+    
+    if (itemDetails.length === 0) {
+      await db.query("ROLLBACK");
+      return res.status(404).json({ error: "Prescription item not found" });
+    }
+    
+    const item = itemDetails[0];
+    
+    // 2. Check if already dispensed
+    if (item.Status === 'dispensed') {
+      await db.query("ROLLBACK");
+      return res.status(400).json({ error: "Item already dispensed" });
+    }
+    
+    // 3. Check stock availability
+    if (item.QuantityInStock < quantityDispensed) {
+      await db.query("ROLLBACK");
+      return res.status(400).json({ 
+        error: `Insufficient stock. Available: ${item.QuantityInStock}, Requested: ${quantityDispensed}` 
+      });
+    }
+    
+    // 4. Update drug inventory
+    await db.query(`
+      UPDATE drug 
+      SET QuantityInStock = QuantityInStock - ?,
+          LastUpdated = NOW()
+      WHERE DrugID = ?
+    `, [quantityDispensed, item.DrugID]);
+    
+    // 5. Log inventory change
+    await db.query(`
+      INSERT INTO inventorylog 
+      (DrugID, Action, QuantityChange, Timestamp, PerformedBy)
+      VALUES (?, 'dispensed', -?, NOW(), ?)
+    `, [item.DrugID, quantityDispensed, pharmacistId]);
+    
+    // 6. Update prescription item status
+    await db.query(`
+      UPDATE prescriptionitem 
+      SET Status = 'dispensed',
+          StatusUpdatedAt = NOW(),
+          StatusUpdatedBy = ?
+      WHERE ItemID = ?
+    `, [pharmacistId, itemId]);
+    
+    // 7. Create dispensing record
+    const [dispensingRecord]: any = await db.query(`
+      INSERT INTO dispensingrecord 
+      (PrescriptionID, ItemID, PharmacistID, DispensedDate, BatchNumber, QuantityDispensed, Notes)
+      VALUES (?, ?, ?, NOW(), ?, ?, ?)
+    `, [item.PrescriptionID, itemId, pharmacistId, batchNumber, quantityDispensed, notes]);
+    
+    await db.query("COMMIT");
+    
+    res.status(200).json({
+      success: true,
+      message: "Medication dispensed successfully",
+      dispensingId: dispensingRecord.insertId
+    });
+    
+  } catch (error) {
+    await db.query("ROLLBACK");
+    console.error("Dispensing error:", error);
+    res.status(500).json({ error: "Failed to dispense medication" });
+  }
+};
+
+export const updatePrescriptionItemStatus = async (req: Request, res: Response) => {
+  try {
+    const { itemId, status, notes } = req.body;
+    const updatedBy = (req as any).user?.userId;
+    
+    if (!updatedBy) {
+      return res.status(400).json({ error: "User ID not found" });
+    }
+    
+    const validStatuses = ['pending', 'preparing', 'ready', 'dispensed', 'cancelled'];
+    
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    
+    await db.query(`
+      UPDATE prescriptionitem 
+      SET Status = ?,
+          StatusUpdatedAt = NOW(),
+          StatusUpdatedBy = ?,
+          StatusNotes = CONCAT(IFNULL(StatusNotes, ''), '\n', ?)
+      WHERE ItemID = ?
+    `, [status, updatedBy, notes || `Status changed to ${status}`, itemId]);
+    
+    res.json({
+      success: true,
+      message: `Status updated to ${status}`
+    });
+    
+  } catch (error) {
+    console.error("Status update error:", error);
+    res.status(500).json({ error: "Failed to update status" });
+  }
+};

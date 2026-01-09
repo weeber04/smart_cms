@@ -1,0 +1,2087 @@
+-- =============================================
+-- DUMMY DATA FOR SMART_CMS DATABASE
+-- =============================================
+
+-- First, let's clear existing dummy data if needed (optional)
+-- DELETE FROM prescriptionitem WHERE PrescriptionID > 6;
+-- DELETE FROM prescription WHERE PrescriptionID > 6;
+-- DELETE FROM vital_signs WHERE VitalSignID > 6;
+-- DELETE FROM consultation WHERE ConsultationID > 22;
+-- DELETE FROM patient_visit WHERE VisitID > 105;
+-- DELETE FROM appointment WHERE AppointmentID > 52;
+-- DELETE FROM patient WHERE PatientID > 11;
+-- DELETE FROM useraccount WHERE UserID > 15;
+
+-- =============================================
+-- 1. CREATE ADDITIONAL STAFF (2 of each role)
+-- =============================================
+
+-- Additional Doctors (2 more)
+INSERT INTO useraccount (UserID, Name, Email, PasswordHash, Role, PhoneNum, ICNo, Status) VALUES
+(16, 'Dr. Sarah Chen', 'schen@hospital.com', '$2b$10$lIx0wyp8g704iMpZl9YBq.eKNQSL8rNDdMvNNxXHlBPhkqbzXHw9a', 'doctor', '012-3456789', '850505-10-5432', 'Active'),
+(17, 'Dr. James Wilson', 'jwilson@hospital.com', '$2b$10$lIx0wyp8g704iMpZl9YBq.eKNQSL8rNDdMvNNxXHlBPhkqbzXHw9a', 'doctor', '012-3456790', '780808-08-8765', 'Active');
+
+INSERT INTO doctorprofile (DoctorID, Specialization, LicenseNo, ClinicRoom) VALUES
+(16, 'Pediatrics', 'PED12345', 'Room 201'),
+(17, 'Orthopedics', 'ORTH67890', 'Room 202');
+
+-- Additional Receptionists (2 more)
+INSERT INTO useraccount (UserID, Name, Email, PasswordHash, Role, PhoneNum, ICNo, Status) VALUES
+(18, 'Lisa Wong', 'lwong@hospital.com', '$2b$10$lIx0wyp8g704iMpZl9YBq.eKNQSL8rNDdMvNNxXHlBPhkqbzXHw9a', 'receptionist', '012-3456791', '900909-09-9876', 'Active'),
+(19, 'Michael Tan', 'mtan@hospital.com', '$2b$10$lIx0wyp8g704iMpZl9YBq.eKNQSL8rNDdMvNNxXHlBPhkqbzXHw9a', 'receptionist', '012-3456792', '880808-08-8765', 'Active');
+
+-- Additional Pharmacists (2 more - we have 1 existing, need 1 more)
+INSERT INTO useraccount (UserID, Name, Email, PasswordHash, Role, PhoneNum, ICNo, Status) VALUES
+(20, 'Emily Davis', 'edavis@hospital.com', '$2b$10$lIx0wyp8g704iMpZl9YBq.eKNQSL8rNDdMvNNxXHlBPhkqbzXHw9a', 'Pharmacist', '012-3456793', '920202-02-2345', 'Active');
+
+-- =============================================
+-- 2. CREATE 20 PATIENTS WITH COMPLETE RECORDS
+-- =============================================
+
+-- Patient 12-31
+INSERT INTO patient (PatientID, Name, ICNo, Gender, DOB, Address, PhoneNumber, Email, BloodType, InsuranceName, ChronicDisease, Allergy, EmergencyContactName, EmergencyContactPhone, InsuranceProvider, InsurancePolicyNo, Occupation, MaritalStatus, Nationality, PreferredLanguage, IsActive, CreatedBy, AddressLine1, City, State, ZipCode, Country) VALUES
+-- Patient 12
+(12, 'Ahmad bin Abdullah', '851212-14-5678', 'M', '1985-12-12', 'No 45, Jalan Merdeka, Kuala Lumpur', '012-1112233', 'ahmad85@gmail.com', 'B+', 'AIA Insurance', 'Y', 'Y', 'Siti binti Ahmad', '012-2223344', 'AIA', 'AIA123456', 'Engineer', 'married', 'Malaysian', 'Malay', 1, 10, 'No 45, Jalan Merdeka', 'Kuala Lumpur', 'Wilayah Persekutuan', '50000', 'MY'),
+-- Patient 13
+(13, 'Siti Nurhaliza binti Mohamed', '900101-01-2345', 'F', '1990-01-01', 'Lot 123, Taman Melawati, Selangor', '013-4445566', 'siti90@gmail.com', 'O+', 'Prudential', 'N', 'Y', 'Mohamed bin Ali', '013-5556677', 'Prudential', 'PRU789012', 'Teacher', 'married', 'Malaysian', 'Malay', 1, 10, 'Lot 123, Taman Melawati', 'Kuala Selangor', 'Selangor', '53100', 'MY'),
+-- Patient 14
+(14, 'Raj Kumar', '820315-08-9012', 'M', '1982-03-15', 'No 78, Jalan Tun Sambanthan, Ipoh', '014-7778899', 'rajkumar@gmail.com', 'A+', 'Great Eastern', 'Y', 'N', 'Priya a/p Samy', '014-8889900', 'Great Eastern', 'GE345678', 'Businessman', 'married', 'Malaysian', 'Tamil', 1, 10, 'No 78, Jalan Tun Sambanthan', 'Ipoh', 'Perak', '30000', 'MY'),
+-- Patient 15
+(15, 'Mei Ling Tan', '950505-05-6789', 'F', '1995-05-05', 'No 22, Taman Desa, Petaling Jaya', '016-2223334', 'meiling@hotmail.com', 'AB+', 'Allianz', 'N', 'N', 'Robert Tan', '016-3334445', 'Allianz', 'ALL901234', 'Accountant', 'single', 'Malaysian', 'Chinese', 1, 10, 'No 22, Taman Desa', 'Petaling Jaya', 'Selangor', '47400', 'MY'),
+-- Patient 16
+(16, 'John Smith', '881212-12-1212', 'M', '1988-12-12', '123 Oak Street, Boston', '017-1234567', 'john.smith@email.com', 'O-', 'Blue Cross', 'N', 'Y', 'Mary Smith', '017-2345678', 'Blue Cross', 'BC654321', 'Software Developer', 'married', 'American', 'English', 1, 10, '123 Oak Street', 'Boston', 'Massachusetts', '02101', 'USA'),
+-- Patient 17
+(17, 'Maria Garcia', '930707-07-0707', 'F', '1993-07-07', '456 Maple Ave, Miami', '018-3456789', 'maria.garcia@email.com', 'A-', 'Aetna', 'Y', 'N', 'Carlos Garcia', '018-4567890', 'Aetna', 'AET765432', 'Nurse', 'single', 'American', 'Spanish', 1, 10, '456 Maple Ave', 'Miami', 'Florida', '33101', 'USA'),
+-- Patient 18
+(18, 'David Lee', '850808-08-0808', 'M', '1985-08-08', '789 Pine Road, San Francisco', '019-5678901', 'david.lee@email.com', 'B+', 'Cigna', 'N', 'Y', 'Jennifer Lee', '019-6789012', 'Cigna', 'CIG876543', 'Marketing Manager', 'married', 'American', 'English', 1, 10, '789 Pine Road', 'San Francisco', 'California', '94102', 'USA'),
+-- Patient 19
+(19, 'Sarah Johnson', '910101-01-0101', 'F', '1991-01-01', '321 Elm Street, Chicago', '011-7890123', 'sarah.j@email.com', 'O+', 'UnitedHealth', 'Y', 'N', 'Michael Johnson', '011-8901234', 'UnitedHealth', 'UH987654', 'Teacher', 'married', 'American', 'English', 1, 10, '321 Elm Street', 'Chicago', 'Illinois', '60601', 'USA'),
+-- Patient 20
+(20, 'Robert Brown', '790202-02-0202', 'M', '1979-02-02', '654 Birch Lane, Houston', '012-9012345', 'robert.b@email.com', 'AB-', 'Humana', 'Y', 'Y', 'Linda Brown', '012-0123456', 'Humana', 'HUM543210', 'Construction Manager', 'divorced', 'American', 'English', 1, 10, '654 Birch Lane', 'Houston', 'Texas', '77001', 'USA'),
+-- Patient 21
+(21, 'Lisa Chen', '940303-03-0303', 'F', '1994-03-03', '987 Cedar Street, Seattle', '013-1122334', 'lisa.chen@email.com', 'B-', 'Kaiser', 'N', 'N', 'Kevin Chen', '013-2233445', 'Kaiser', 'KAISER654', 'Graphic Designer', 'single', 'American', 'Chinese', 1, 10, '987 Cedar Street', 'Seattle', 'Washington', '98101', 'USA'),
+-- Patient 22
+(22, 'Mohamed Ali', '860404-04-0404', 'M', '1986-04-04', '234 Palm Avenue, Dubai', '014-3344556', 'mohamed.ali@email.com', 'A+', 'Daman', 'Y', 'N', 'Fatima Ali', '014-4455667', 'Daman', 'DAM789012', 'Business Owner', 'married', 'UAE', 'Arabic', 1, 10, '234 Palm Avenue', 'Dubai', 'Dubai', '00000', 'UAE'),
+-- Patient 23
+(23, 'Emma Wilson', '920606-06-0606', 'F', '1992-06-06', '567 Rose Street, London', '015-5566778', 'emma.w@email.com', 'O+', 'Bupa', 'N', 'Y', 'James Wilson', '015-6677889', 'Bupa', 'BUPA321098', 'Architect', 'single', 'British', 'English', 1, 10, '567 Rose Street', 'London', 'England', 'SW1A 1AA', 'UK'),
+-- Patient 24
+(24, 'Kenji Tanaka', '870707-07-0707', 'M', '1987-07-07', '890 Sakura Street, Tokyo', '016-7788990', 'kenji.t@email.com', 'A-', 'Tokio Marine', 'Y', 'N', 'Yuki Tanaka', '016-8899001', 'Tokio Marine', 'TM765432', 'Engineer', 'married', 'Japanese', 'Japanese', 1, 10, '890 Sakura Street', 'Tokyo', 'Tokyo', '100-0001', 'JP'),
+-- Patient 25
+(25, 'Sophie Martin', '930808-08-0808', 'F', '1993-08-08', '123 Rue de Paris, Paris', '017-9900112', 'sophie.m@email.com', 'B+', 'AXA', 'N', 'Y', 'Pierre Martin', '017-0011223', 'AXA', 'AXA876543', 'Fashion Designer', 'single', 'French', 'French', 1, 10, '123 Rue de Paris', 'Paris', 'Île-de-France', '75001', 'FR'),
+-- Patient 26
+(26, 'Carlos Rodriguez', '840909-09-0909', 'M', '1984-09-09', '456 Avenida Madrid, Madrid', '018-2233445', 'carlos.r@email.com', 'O-', 'Mapfre', 'Y', 'N', 'Elena Rodriguez', '018-3344556', 'Mapfre', 'MAP654321', 'Doctor', 'married', 'Spanish', 'Spanish', 1, 10, '456 Avenida Madrid', 'Madrid', 'Madrid', '28001', 'ES'),
+-- Patient 27
+(27, 'Anna Schmidt', '901010-10-1010', 'F', '1990-10-10', '789 Berliner Strasse, Berlin', '019-4455667', 'anna.s@email.com', 'AB+', 'Allianz DE', 'N', 'N', 'Hans Schmidt', '019-5566778', 'Allianz', 'ALLDE987', 'Scientist', 'married', 'German', 'German', 1, 10, '789 Berliner Strasse', 'Berlin', 'Berlin', '10115', 'DE'),
+-- Patient 28
+(28, 'Wei Zhang', '881111-11-1111', 'M', '1988-11-11', '234 Nanjing Road, Shanghai', '011-6677889', 'wei.zhang@email.com', 'A+', 'Ping An', 'Y', 'Y', 'Li Zhang', '011-7788990', 'Ping An', 'PA123456', 'IT Manager', 'married', 'Chinese', 'Mandarin', 1, 10, '234 Nanjing Road', 'Shanghai', 'Shanghai', '200001', 'CN'),
+-- Patient 29
+(29, 'Priya Patel', '911212-12-1212', 'F', '1991-12-12', '567 Gandhi Street, Mumbai', '012-8899001', 'priya.p@email.com', 'B-', 'ICICI Lombard', 'N', 'N', 'Raj Patel', '012-9900112', 'ICICI', 'ICICI789', 'Pharmacist', 'single', 'Indian', 'Hindi', 1, 10, '567 Gandhi Street', 'Mumbai', 'Maharashtra', '400001', 'IN'),
+-- Patient 30
+(30, 'Takeshi Yamamoto', '850101-01-0101', 'M', '1985-01-01', '890 Shinjuku Street, Tokyo', '013-0011223', 'takeshi.y@email.com', 'O+', 'Sompo Japan', 'Y', 'Y', 'Yoko Yamamoto', '013-1122334', 'Sompo', 'SJ456789', 'Chef', 'married', 'Japanese', 'Japanese', 1, 10, '890 Shinjuku Street', 'Tokyo', 'Tokyo', '160-0021', 'JP'),
+-- Patient 31
+(31, 'Fatima Ahmed', '940202-02-0202', 'F', '1994-02-02', '123 Al Khalifa Street, Riyadh', '014-2233445', 'fatima.a@email.com', 'A-', 'Tawuniya', 'N', 'Y', 'Omar Ahmed', '014-3344556', 'Tawuniya', 'TAW567890', 'Student', 'single', 'Saudi', 'Arabic', 1, 10, '123 Al Khalifa Street', 'Riyadh', 'Riyadh', '11564', 'SA');
+
+-- =============================================
+-- 3. CREATE APPOINTMENTS FOR PATIENTS
+-- =============================================
+
+INSERT INTO appointment (AppointmentID, AppointmentDateTime, Purpose, Status, PatientID, DoctorID, CreatedBy, QueueNumber, Notes, UpdatedAt, start_time, end_time) VALUES
+-- Patient 12 appointments
+(53, '2026-01-10 09:00:00', 'Regular checkup for diabetes management', 'confirmed', 12, 9, 10, 'Q-260110-001', 'Patient needs fasting blood sugar test', '2026-01-09 09:00:00', '09:00:00', '09:30:00'),
+(54, '2026-01-15 14:00:00', 'Follow up on hypertension', 'scheduled', 12, 16, 18, NULL, 'Check BP medication effectiveness', '2026-01-09 09:00:00', '14:00:00', '14:30:00'),
+
+-- Patient 13 appointments
+(55, '2026-01-11 10:30:00', 'Allergy symptoms evaluation', 'confirmed', 13, 16, 18, 'Q-260111-001', 'Patient reports seasonal allergies worsening', '2026-01-09 09:00:00', '10:30:00', '11:00:00'),
+(56, '2025-12-20 11:00:00', 'Cough and cold', 'completed', 13, 9, 18, 'Q-251220-001', 'Prescribed antibiotics for bacterial infection', '2025-12-20 11:30:00', '11:00:00', '11:30:00'),
+
+-- Patient 14 appointments
+(57, '2026-01-12 08:30:00', 'Diabetes type 2 management', 'confirmed', 14, 9, 18, 'Q-260112-001', 'Monitor HbA1c levels', '2026-01-09 09:00:00', '08:30:00', '09:00:00'),
+(58, '2025-11-15 13:00:00', 'High cholesterol follow up', 'completed', 14, 16, 18, 'Q-251115-001', 'Started on statins', '2025-11-15 13:30:00', '13:00:00', '13:30:00'),
+
+-- Patient 15 appointments
+(59, '2026-01-13 15:00:00', 'Annual physical examination', 'scheduled', 15, 17, 19, NULL, 'Routine checkup', '2026-01-09 09:00:00', '15:00:00', '15:30:00'),
+(60, '2025-10-10 16:00:00', 'Sports injury - ankle sprain', 'completed', 15, 17, 19, 'Q-251010-001', 'RICE therapy recommended', '2025-10-10 16:30:00', '16:00:00', '16:30:00'),
+
+-- Patient 16 appointments
+(61, '2026-01-14 09:30:00', 'Migraine headaches evaluation', 'confirmed', 16, 9, 18, 'Q-260114-001', 'Frequent headaches for 2 weeks', '2026-01-09 09:00:00', '09:30:00', '10:00:00'),
+(62, '2025-12-05 11:30:00', 'Back pain consultation', 'completed', 16, 17, 18, 'Q-251205-001', 'Muscle strain diagnosed', '2025-12-05 12:00:00', '11:30:00', '12:00:00'),
+
+-- Patient 17 appointments
+(63, '2026-01-15 10:00:00', 'Asthma management', 'confirmed', 17, 16, 19, 'Q-260115-001', 'Adjust inhaler dosage', '2026-01-09 09:00:00', '10:00:00', '10:30:00'),
+(64, '2025-11-20 14:30:00', 'Pneumonia follow up', 'completed', 17, 9, 19, 'Q-251120-001', 'Recovered well', '2025-11-20 15:00:00', '14:30:00', '15:00:00'),
+
+-- Patient 18 appointments
+(65, '2026-01-16 13:30:00', 'Food allergy testing', 'scheduled', 18, 16, 18, NULL, 'Suspected peanut allergy', '2026-01-09 09:00:00', '13:30:00', '14:00:00'),
+(66, '2025-12-12 09:00:00', 'Skin rash evaluation', 'completed', 18, 9, 18, 'Q-251212-002', 'Contact dermatitis diagnosed', '2025-12-12 09:30:00', '09:00:00', '09:30:00'),
+
+-- Patient 19 appointments
+(67, '2026-01-17 08:00:00', 'Hypertension monitoring', 'confirmed', 19, 9, 19, 'Q-260117-001', 'Check BP control', '2026-01-09 09:00:00', '08:00:00', '08:30:00'),
+(68, '2025-10-25 15:30:00', 'Thyroid function test review', 'completed', 19, 16, 19, 'Q-251025-001', 'Started on levothyroxine', '2025-10-25 16:00:00', '15:30:00', '16:00:00'),
+
+-- Patient 20 appointments
+(69, '2026-01-18 11:00:00', 'Arthritis pain management', 'scheduled', 20, 17, 18, NULL, 'Osteoarthritis in knees', '2026-01-09 09:00:00', '11:00:00', '11:30:00'),
+(70, '2025-11-30 10:00:00', 'Work-related stress counseling', 'completed', 20, 9, 18, 'Q-251130-001', 'Recommended stress management techniques', '2025-11-30 10:30:00', '10:00:00', '10:30:00'),
+
+-- Patient 21 appointments
+(71, '2026-01-19 14:00:00', 'Annual wellness check', 'confirmed', 21, 16, 19, 'Q-260119-001', 'Routine preventive care', '2026-01-09 09:00:00', '14:00:00', '14:30:00'),
+
+-- Patient 22 appointments
+(72, '2026-01-20 09:00:00', 'Diabetes and hypertension combo', 'scheduled', 22, 9, 18, NULL, 'Complex case management', '2026-01-09 09:00:00', '09:00:00', '09:30:00'),
+
+-- Patient 23 appointments
+(73, '2026-01-21 10:30:00', 'Allergic rhinitis', 'confirmed', 23, 16, 19, 'Q-260121-001', 'Seasonal allergies', '2026-01-09 09:00:00', '10:30:00', '11:00:00'),
+
+-- Patient 24 appointments
+(74, '2026-01-22 13:00:00', 'Gastroesophageal reflux disease', 'scheduled', 24, 9, 18, NULL, 'GERD symptoms worsening', '2026-01-09 09:00:00', '13:00:00', '13:30:00'),
+
+-- Patient 25 appointments
+(75, '2026-01-23 15:30:00', 'Anxiety and depression follow up', 'confirmed', 25, 9, 19, 'Q-260123-001', 'Medication adjustment needed', '2026-01-09 09:00:00', '15:30:00', '16:00:00'),
+
+-- Patient 26 appointments
+(76, '2026-01-24 08:30:00', 'High cholesterol management', 'scheduled', 26, 9, 18, NULL, 'Statin therapy review', '2026-01-09 09:00:00', '08:30:00', '09:00:00'),
+
+-- Patient 27 appointments
+(77, '2026-01-25 11:30:00', 'Pregnancy checkup - 20 weeks', 'confirmed', 27, 16, 19, 'Q-260125-001', 'Routine prenatal care', '2026-01-09 09:00:00', '11:30:00', '12:00:00'),
+
+-- Patient 28 appointments
+(78, '2026-01-26 14:30:00', 'Bronchitis symptoms', 'scheduled', 28, 9, 18, NULL, 'Persistent cough for 3 weeks', '2026-01-09 09:00:00', '14:30:00', '15:00:00'),
+
+-- Patient 29 appointments
+(79, '2026-01-27 10:00:00', 'Child wellness visit', 'confirmed', 29, 16, 19, 'Q-260127-001', '5-year old child vaccination', '2026-01-09 09:00:00', '10:00:00', '10:30:00'),
+
+-- Patient 30 appointments
+(80, '2026-01-28 13:30:00', 'Sports physical examination', 'scheduled', 30, 17, 18, NULL, 'School basketball team requirement', '2026-01-09 09:00:00', '13:30:00', '14:00:00'),
+
+-- Patient 31 appointments
+(81, '2026-01-29 09:30:00', 'Asthma exacerbation', 'confirmed', 31, 16, 19, 'Q-260129-001', 'Increased wheezing at night', '2026-01-09 09:00:00', '09:30:00', '10:00:00');
+
+-- =============================================
+-- 4. CREATE PATIENT VISITS (Walk-ins and Appointments)
+-- =============================================
+
+-- Walk-in visits for patients 12-31
+INSERT INTO patient_visit (VisitID, AppointmentID, PatientID, DoctorID, VisitType, ArrivalTime, CheckInTime, CheckOutTime, VisitStatus, VisitNotes, QueueNumber, QueuePosition, QueueStatus, CalledTime, TriagePriority, UpdatedAt) VALUES
+-- Patient 12 walk-in (2 visits)
+(106, NULL, 12, 9, 'walk-in', '2025-11-10 08:30:00', '2025-11-10 08:30:00', '2025-11-10 09:15:00', 'completed', 'High fever and sore throat', 'Q-251110-001', 1, 'completed', '2025-11-10 08:45:00', 'medium', '2025-11-10 09:15:00'),
+(107, NULL, 12, 16, 'walk-in', '2025-12-05 14:00:00', '2025-12-05 14:00:00', '2025-12-05 14:45:00', 'completed', 'Diabetes checkup - fasting sugar high', 'Q-251205-002', 3, 'completed', '2025-12-05 14:20:00', 'low', '2025-12-05 14:45:00'),
+
+-- Patient 13 walk-in (2 visits)
+(108, NULL, 13, 16, 'walk-in', '2025-10-15 09:00:00', '2025-10-15 09:00:00', '2025-10-15 09:40:00', 'completed', 'Skin allergy - hives after eating seafood', 'Q-251015-001', 2, 'completed', '2025-10-15 09:15:00', 'medium', '2025-10-15 09:40:00'),
+(109, NULL, 13, 9, 'walk-in', '2025-12-18 10:30:00', '2025-12-18 10:30:00', '2025-12-18 11:15:00', 'completed', 'Common cold symptoms', 'Q-251218-001', 4, 'completed', '2025-12-18 10:50:00', 'low', '2025-12-18 11:15:00'),
+
+-- Patient 14 walk-in (2 visits)
+(110, NULL, 14, 9, 'walk-in', '2025-09-20 11:00:00', '2025-09-20 11:00:00', '2025-09-20 11:50:00', 'completed', 'Foot ulcer check - diabetic patient', 'Q-250920-001', 1, 'completed', '2025-09-20 11:20:00', 'medium', '2025-09-20 11:50:00'),
+(111, NULL, 14, 16, 'walk-in', '2025-11-25 15:00:00', '2025-11-25 15:00:00', '2025-11-25 15:45:00', 'completed', 'Blurred vision - diabetes complication check', 'Q-251125-001', 2, 'completed', '2025-11-25 15:25:00', 'medium', '2025-11-25 15:45:00'),
+
+-- Patient 15 walk-in (2 visits)
+(112, NULL, 15, 17, 'walk-in', '2025-08-12 13:30:00', '2025-08-12 13:30:00', '2025-08-12 14:20:00', 'completed', 'Knee pain after running marathon', 'Q-250812-001', 3, 'completed', '2025-08-12 13:55:00', 'low', '2025-08-12 14:20:00'),
+(113, NULL, 15, 9, 'walk-in', '2025-12-28 09:30:00', '2025-12-28 09:30:00', '2025-12-28 10:15:00', 'completed', 'Annual health screening', 'Q-251228-001', 1, 'completed', '2025-12-28 09:50:00', 'low', '2025-12-28 10:15:00'),
+
+-- Patient 16 walk-in (2 visits)
+(114, NULL, 16, 9, 'walk-in', '2025-10-05 10:00:00', '2025-10-05 10:00:00', '2025-10-05 10:50:00', 'completed', 'Severe migraine with aura', 'Q-251005-001', 2, 'completed', '2025-10-05 10:25:00', 'high', '2025-10-05 10:50:00'),
+(115, NULL, 16, 17, 'walk-in', '2025-11-18 14:30:00', '2025-11-18 14:30:00', '2025-11-18 15:20:00', 'completed', 'Lower back pain - possible disc issue', 'Q-251118-001', 4, 'completed', '2025-11-18 14:55:00', 'medium', '2025-11-18 15:20:00'),
+
+-- Patient 17 walk-in (2 visits)
+(116, NULL, 17, 16, 'walk-in', '2025-09-08 08:30:00', '2025-09-08 08:30:00', '2025-09-08 09:25:00', 'completed', 'Asthma attack - difficulty breathing', 'Q-250908-001', 1, 'completed', '2025-09-08 08:50:00', 'high', '2025-09-08 09:25:00'),
+(117, NULL, 17, 9, 'walk-in', '2025-12-10 11:30:00', '2025-12-10 11:30:00', '2025-12-10 12:20:00', 'completed', 'Follow up pneumonia recovery', 'Q-251210-005', 3, 'completed', '2025-12-10 11:55:00', 'low', '2025-12-10 12:20:00'),
+
+-- Patient 18 walk-in (2 visits)
+(118, NULL, 18, 9, 'walk-in', '2025-08-25 09:45:00', '2025-08-25 09:45:00', '2025-08-25 10:35:00', 'completed', 'Food poisoning symptoms', 'Q-250825-001', 2, 'completed', '2025-08-25 10:10:00', 'medium', '2025-08-25 10:35:00'),
+(119, NULL, 18, 16, 'walk-in', '2025-11-30 13:00:00', '2025-11-30 13:00:00', '2025-11-30 13:50:00', 'completed', 'Allergy skin test follow up', 'Q-251130-002', 1, 'completed', '2025-11-30 13:25:00', 'low', '2025-11-30 13:50:00'),
+
+-- Patient 19 walk-in (2 visits)
+(120, NULL, 19, 9, 'walk-in', '2025-07-15 14:00:00', '2025-07-15 14:00:00', '2025-07-15 14:55:00', 'completed', 'Hypertensive emergency - BP 180/110', 'Q-250715-001', 1, 'completed', '2025-07-15 14:20:00', 'high', '2025-07-15 14:55:00'),
+(121, NULL, 19, 16, 'walk-in', '2025-12-22 10:15:00', '2025-12-22 10:15:00', '2025-12-22 11:05:00', 'completed', 'Thyroid function test results review', 'Q-251222-001', 3, 'completed', '2025-12-22 10:40:00', 'low', '2025-12-22 11:05:00'),
+
+-- Patient 20 walk-in (2 visits)
+(122, NULL, 20, 17, 'walk-in', '2025-06-10 08:00:00', '2025-06-10 08:00:00', '2025-06-10 08:55:00', 'completed', 'Arthritis flare up - knee swelling', 'Q-250610-001', 1, 'completed', '2025-06-10 08:25:00', 'medium', '2025-06-10 08:55:00'),
+(123, NULL, 20, 9, 'walk-in', '2025-12-15 15:30:00', '2025-12-15 15:30:00', '2025-12-15 16:25:00', 'completed', 'Stress management counseling', 'Q-251215-002', 2, 'completed', '2025-12-15 15:55:00', 'low', '2025-12-15 16:25:00'),
+
+-- Patient 21 walk-in (1 visit)
+(124, NULL, 21, 16, 'walk-in', '2025-11-05 09:30:00', '2025-11-05 09:30:00', '2025-11-05 10:20:00', 'completed', 'UTI symptoms - painful urination', 'Q-251105-001', 2, 'completed', '2025-11-05 09:55:00', 'medium', '2025-11-05 10:20:00'),
+
+-- Patient 22 walk-in (1 visit)
+(125, NULL, 22, 9, 'walk-in', '2025-10-20 13:45:00', '2025-10-20 13:45:00', '2025-10-20 14:35:00', 'completed', 'Diabetes management - glucose monitoring issues', 'Q-251020-001', 4, 'completed', '2025-10-20 14:10:00', 'medium', '2025-10-20 14:35:00'),
+
+-- Patient 23 walk-in (1 visit)
+(126, NULL, 23, 16, 'walk-in', '2025-09-30 11:15:00', '2025-09-30 11:15:00', '2025-09-30 12:05:00', 'completed', 'Allergic conjunctivitis - red itchy eyes', 'Q-250930-001', 3, 'completed', '2025-09-30 11:40:00', 'low', '2025-09-30 12:05:00'),
+
+-- Patient 24 walk-in (1 visit)
+(127, NULL, 24, 9, 'walk-in', '2025-08-18 10:45:00', '2025-08-18 10:45:00', '2025-08-18 11:35:00', 'completed', 'Heartburn and acid reflux worsening', 'Q-250818-001', 2, 'completed', '2025-08-18 11:10:00', 'medium', '2025-08-18 11:35:00'),
+
+-- Patient 25 walk-in (1 visit)
+(128, NULL, 25, 9, 'walk-in', '2025-12-01 14:15:00', '2025-12-01 14:15:00', '2025-12-01 15:05:00', 'completed', 'Anxiety symptoms increased', 'Q-251201-001', 1, 'completed', '2025-12-01 14:40:00', 'low', '2025-12-01 15:05:00'),
+
+-- Patient 26 walk-in (1 visit)
+(129, NULL, 26, 9, 'walk-in', '2025-07-25 08:30:00', '2025-07-25 08:30:00', '2025-07-25 09:25:00', 'completed', 'High cholesterol - lifestyle modification advice', 'Q-250725-001', 1, 'completed', '2025-07-25 08:55:00', 'low', '2025-07-25 09:25:00'),
+
+-- Patient 27 walk-in (1 visit)
+(130, NULL, 27, 16, 'walk-in', '2025-11-12 13:30:00', '2025-11-12 13:30:00', '2025-11-12 14:20:00', 'completed', 'Prenatal checkup - 12 weeks', 'Q-251112-001', 2, 'completed', '2025-11-12 13:55:00', 'low', '2025-11-12 14:20:00'),
+
+-- Patient 28 walk-in (1 visit)
+(131, NULL, 28, 9, 'walk-in', '2025-10-08 09:00:00', '2025-10-08 09:00:00', '2025-10-08 09:50:00', 'completed', 'Bronchitis - productive cough with fever', 'Q-251008-001', 3, 'completed', '2025-10-08 09:25:00', 'medium', '2025-10-08 09:50:00'),
+
+-- Patient 29 walk-in (1 visit)
+(132, NULL, 29, 16, 'walk-in', '2025-09-15 15:45:00', '2025-09-15 15:45:00', '2025-09-15 16:35:00', 'completed', 'Child fever - 39°C for 2 days', 'Q-250915-001', 4, 'completed', '2025-09-15 16:10:00', 'high', '2025-09-15 16:35:00'),
+
+-- Patient 30 walk-in (1 visit)
+(133, NULL, 30, 17, 'walk-in', '2025-08-30 11:30:00', '2025-08-30 11:30:00', '2025-08-30 12:20:00', 'completed', 'Shoulder injury - sports related', 'Q-250830-001', 2, 'completed', '2025-08-30 11:55:00', 'medium', '2025-08-30 12:20:00'),
+
+-- Patient 31 walk-in (1 visit)
+(134, NULL, 31, 16, 'walk-in', '2025-12-05 08:45:00', '2025-12-05 08:45:00', '2025-12-05 09:35:00', 'completed', 'Asthma - nebulizer treatment needed', 'Q-251205-003', 1, 'completed', '2025-12-05 09:10:00', 'high', '2025-12-05 09:35:00');
+
+-- =============================================
+-- 5. CREATE CONSULTATIONS FOR VISITS
+-- =============================================
+
+-- Consultation for patient 12 visits
+INSERT INTO consultation (ConsultationID, VisitID, DoctorID, StartTime, EndTime, ChiefComplaint, HistoryOfPresentIllness, PhysicalExamFindings, Diagnosis, DiagnosisCode, TreatmentPlan, LabTestsOrdered, ReferralGiven, FollowUpDate, FollowUpInstructions, ConsultationNotes, SeverityAssessment, MedicationPlan, NonMedicationPlan, PatientEducation, LifestyleAdvice, WarningSigns, Disposition, ReferralNotes, PastMedicalHistory, FamilyHistory, DifferentialDiagnosis, NeedsFollowUp, FollowUpTime, FollowUpPurpose, ReferralNeeded, CreatedAt, UpdatedAt) VALUES
+-- Consultation for visit 106 (Patient 12)
+(23, 106, 9, '2025-11-10 08:45:00', '2025-11-10 09:15:00', 'High fever and sore throat for 3 days', 'Patient developed fever (39°C) three days ago with progressive sore throat and difficulty swallowing. No cough or runny nose. Took paracetamol with temporary relief.', '{"generalAppearance":"Ill-looking, flushed","cardiovascular":"Tachycardia (HR 110 bpm)","respiratory":"Clear breath sounds","abdominal":"Soft, non-tender","neurological":"Alert and oriented"}', 'Acute tonsillitis', 'J03.90', '1. Antibiotics: Amoxicillin 500mg TID for 7 days\n2. Analgesics: Paracetamol 500mg QID PRN\n3. Throat lozenges as needed', 1, 0, '2025-11-17', 'Return if fever persists after 48 hours of antibiotics', 'Patient advised to rest and increase fluid intake. Throat swab sent for culture.', 'moderate', 'Amoxicillin 500mg TID x 7 days\nParacetamol 500mg QID PRN', 'Warm salt water gargles\nRest\nAdequate hydration', 'Explain antibiotic importance and completion\nTeach proper gargling technique', 'Avoid cold drinks\nSoft diet recommended\nNo smoking', 'Difficulty breathing\nUnable to swallow liquids\nFever >40°C', 'discharge', NULL, 'Type 2 diabetes mellitus (on metformin)\nHypertension (on amlodipine)', 'Father: Diabetes, hypertension\nMother: Breast cancer', 'Streptococcal pharyngitis\nInfectious mononucleosis\nPeritonsillar abscess', 1, '10:00:00', 'Review throat swab results', 0, '2025-11-10 08:45:00', '2025-11-10 09:15:00'),
+
+-- Consultation for visit 107 (Patient 12)
+(24, 107, 16, '2025-12-05 14:20:00', '2025-12-05 14:45:00', 'Routine diabetes checkup - fasting sugar elevated', 'Patient reports fasting blood glucose consistently 8-9 mmol/L despite medication. No hypoglycemic symptoms. Following diet but occasional non-compliance.', '{"generalAppearance":"Well-nourished","cardiovascular":"BP 140/85 mmHg, HR 78 bpm","respiratory":"Normal","abdominal":"Soft, obese","neurological":"Intact sensation in feet"}', 'Poorly controlled type 2 diabetes mellitus', 'E11.65', '1. Increase metformin to 1000mg BID\n2. Check HbA1c today\n3. Refer to diabetes educator', 1, 1, '2026-01-05', 'Monitor fasting glucose daily\nRecord readings in logbook', 'Patient needs better diabetes education. Foot exam shows mild neuropathy.', 'moderate', 'Metformin 500mg increased to 1000mg BID\nContinue amlodipine 5mg daily', 'Strict carbohydrate counting\nDaily 30-minute walking\nWeight reduction goal: 5kg in 3 months', 'Diabetes self-management education\nHypoglycemia recognition and treatment', 'Reduce carbohydrate intake\nIncrease physical activity\nRegular foot care', 'Blood glucose <4 mmol/L or >15 mmol\nSigns of infection in feet\nBlurred vision', 'discharge', 'Referred to diabetes educator for comprehensive management', 'Type 2 diabetes mellitus x 5 years\nHypertension x 3 years\nDyslipidemia', 'Both parents: Type 2 diabetes\nSibling: Hypertension', 'Medication non-compliance\nSecondary diabetes complication\nConcurrent illness affecting control', 1, '14:00:00', 'Review HbA1c and adjust therapy', 0, '2025-12-05 14:20:00', '2025-12-05 14:45:00'),
+
+-- Consultation for visit 108 (Patient 13)
+(25, 108, 16, '2025-10-15 09:15:00', '2025-10-15 09:40:00', 'Skin rash and hives after seafood dinner', 'Developed generalized urticaria 2 hours after eating prawns. Itchy wheals over trunk and limbs. No respiratory distress. Previous similar episode with shellfish 1 year ago.', '{"generalAppearance":"Comfortable, no distress","cardiovascular":"BP 120/80, HR 85","respiratory":"Clear, no wheezing","abdominal":"Mild epigastric tenderness","neurological":"Normal"}', 'Acute urticaria due to shellfish allergy', 'L50.0', '1. Antihistamine: Cetirizine 10mg daily for 5 days\n2. Topical: Calamine lotion PRN itch\n3. Avoid all shellfish', 0, 0, NULL, 'Carry epinephrine auto-injector if severe reaction occurs', 'Mild allergic reaction. No anaphylaxis. Patient educated on allergen avoidance.', 'mild', 'Cetirizine 10mg daily x 5 days\nHydrocortisone cream 1% BID x 3 days', 'Cool compresses for itching\nAvoid scratching\nIdentify hidden shellfish sources in food', 'Food allergy management\nReading food labels\nEmergency action plan for severe reactions', 'Avoid all crustaceans and mollusks\nInform restaurants of allergy\nConsider allergy testing', 'Difficulty breathing\nSwelling of lips/tongue\nDizziness or fainting', 'discharge', NULL, 'Seasonal allergic rhinitis\nChildhood asthma (resolved)', 'Mother: Peanut allergy\nFather: Allergic rhinitis', 'Food poisoning\nViral exanthem\nDrug reaction', 0, NULL, NULL, 0, '2025-10-15 09:15:00', '2025-10-15 09:40:00'),
+
+-- Consultation for visit 109 (Patient 13)
+(26, 109, 9, '2025-12-18 10:50:00', '2025-12-18 11:15:00', 'Runny nose, cough, and mild fever', 'Symptoms began 2 days ago with clear rhinorrhea, non-productive cough, and low-grade fever (37.8°C). No sore throat. Household members have similar symptoms.', '{"generalAppearance":"Mildly ill","cardiovascular":"BP 118/76, HR 88","respiratory":"Scattered rhonchi, no wheezing","abdominal":"Normal","neurological":"Normal"}', 'Acute viral upper respiratory infection', 'J06.9', '1. Symptomatic treatment only\n2. Increase fluid intake\n3. Rest and isolation to prevent spread', 0, 0, NULL, 'Return if symptoms worsen or fever persists >3 days', 'Viral URI. No antibiotics indicated. Supportive care recommended.', 'mild', 'Paracetamol 500mg QID PRN fever\nSaline nasal spray TID\nCough syrup PRN', 'Steam inhalation\nHoney for cough\nAdequate rest', 'Viral vs bacterial infection education\nImportance of hand hygiene', 'Increase vitamin C intake\nProper cough etiquette\nAdequate sleep', 'High fever >39°C\nDifficulty breathing\nChest pain', 'discharge', NULL, 'Shellfish allergy\nAllergic rhinitis', 'Family history of atopy', 'Influenza\nCOVID-19\nAcute sinusitis', 0, NULL, NULL, 0, '2025-12-18 10:50:00', '2025-12-18 11:15:00'),
+
+-- Consultation for visit 110 (Patient 14)
+(27, 110, 9, '2025-09-20 11:20:00', '2025-09-20 11:50:00', 'Non-healing ulcer on right foot for 2 weeks', 'Diabetic patient noticed small blister on right sole that ruptured and formed ulcer. No pain due to neuropathy. No fever or discharge.', '{"generalAppearance":"Well","cardiovascular":"Pedal pulses present","respiratory":"Normal","abdominal":"Normal","neurological":"Reduced sensation both feet"}', 'Diabetic foot ulcer, neuropathic', 'E11.621', '1. Wound care: Cleanse with saline, apply antibiotic ointment\n2. Off-loading: Special diabetic footwear\n3. Antibiotics: Clindamycin 300mg TID for 7 days', 1, 1, '2025-09-27', 'Daily wound inspection and dressing change', 'High risk for infection due to diabetes. Referred to podiatrist for specialized care.', 'moderate', 'Clindamycin 300mg TID x 7 days\nContinue diabetes medications\nVitamin C 500mg daily', 'Daily foot inspection\nProper footwear\nNo barefoot walking', 'Diabetic foot care principles\nNeuropathy symptom recognition', 'Strict glucose control\nRegular podiatry visits\nProper nail care', 'Fever\nIncreased redness or swelling\nFoul-smelling discharge', 'discharge', 'Referred to podiatry clinic for ongoing wound management', 'Type 2 diabetes mellitus x 8 years\nDiabetic neuropathy\nHypertension', 'Strong family history of diabetes', 'Infected ulcer\nCharcot foot\nIschemic ulcer', 1, '11:00:00', 'Wound check and dressing', 1, '2025-09-20 11:20:00', '2025-09-20 11:50:00'),
+
+-- Consultation for visit 111 (Patient 14)
+(28, 111, 16, '2025-11-25 15:25:00', '2025-11-25 15:45:00', 'Blurred vision for 1 week', 'Progressive blurring of vision, worse in right eye. No eye pain or redness. Floaters noticed occasionally. Diabetes poorly controlled recently.', '{"generalAppearance":"Concerned","cardiovascular":"BP 150/90, HR 82","respiratory":"Normal","abdominal":"Normal","neurological":"Decreased visual acuity 20/40"}', 'Diabetic retinopathy, non-proliferative', 'E11.319', '1. Urgent ophthalmology referral\n2. Tight glucose control\n3. Blood pressure management', 1, 1, '2025-12-02', 'Monitor vision changes daily\nCheck blood glucose 4x daily', 'Possible diabetic retinopathy. Needs fundoscopy by specialist.', 'moderate', 'Increase insulin dosage as per sliding scale\nAmlodipine 10mg daily for BP control', 'Regular eye exams\nBlood pressure monitoring\nHealthy diet for diabetes', 'Diabetic eye disease education\nImportance of glycemic control', 'No smoking\nRegular exercise\nAnnual dilated eye exam', 'Sudden vision loss\nEye pain\nFlashes of light', 'discharge', 'Urgent referral to ophthalmology for fundoscopic examination', 'Type 2 diabetes with complications\nHypertension\nDiabetic nephropathy', 'Father: Blindness from diabetes\nMother: Diabetes', 'Cataract\nGlaucoma\nMacular edema', 1, '15:00:00', 'Review ophthalmology findings', 1, '2025-11-25 15:25:00', '2025-11-25 15:45:00'),
+
+-- Consultation for visit 112 (Patient 15)
+(29, 112, 17, '2025-08-12 13:55:00', '2025-08-12 14:20:00', 'Left knee pain after marathon run', 'Sharp pain in left knee during marathon yesterday. Now swelling and difficulty weight-bearing. No locking or giving way. Previous knee injury 2 years ago.', '{"generalAppearance":"Limping","cardiovascular":"Normal","respiratory":"Normal","abdominal":"Normal","neurological":"Full range of motion with pain"}', 'Acute patellofemoral pain syndrome', 'M25.569', '1. RICE therapy: Rest, Ice, Compression, Elevation\n2. NSAIDs: Ibuprofen 400mg TID with food\n3. Physical therapy referral', 0, 1, '2025-08-19', 'Limit weight-bearing activities\nIce 20 minutes 3x daily', 'Overuse injury from marathon. No ligamentous instability noted.', 'moderate', 'Ibuprofen 400mg TID with food x 7 days\nAcetaminophen 500mg QID PRN pain', 'RICE protocol\nKnee brace for support\nCrutches if needed', 'Running injury prevention\nProper warm-up and cool-down', 'Cross-training recommendation\nProper running shoes\nGradual training increase', 'Unable to bear weight\nKnee locking\nFever or redness', 'discharge', 'Referred to physical therapy for rehabilitation program', 'Previous ACL repair right knee 2019\nSeasonal allergies', 'No significant family history', 'Meniscal tear\nACL injury\nPatellar tendinitis', 1, '14:00:00', 'Progress evaluation', 1, '2025-08-12 13:55:00', '2025-08-12 14:20:00'),
+
+-- Consultation for visit 113 (Patient 15)
+(30, 113, 9, '2025-12-28 09:50:00', '2025-12-28 10:15:00', 'Annual preventive health screening', 'Asymptomatic. Here for routine annual examination and screening tests as per age guidelines.', '{"generalAppearance":"Healthy","cardiovascular":"BP 118/76, HR 72","respiratory":"Clear","abdominal":"Soft, non-tender","neurological":"Normal"}', 'Routine health maintenance', 'Z00.00', '1. Complete blood count\n2. Lipid profile\n3. Liver function tests\n4. Pap smear (if indicated)', 1, 0, '2026-01-04', 'Fasting required for blood tests\nReturn for results review', 'Healthy young female. No concerning findings on examination.', 'low', 'Multivitamin daily recommendation\nCalcium 1000mg daily for bone health', 'Regular exercise\nBalanced diet\nStress management', 'Preventive health screening guidelines\nCancer screening recommendations', 'Regular exercise 150 mins/week\n5 servings fruits/vegetables daily\nLimit alcohol to 1 drink/day', 'Unexpected weight loss\nNew lumps or skin changes\nPersistent fatigue', 'discharge', NULL, 'None significant', 'Mother: Breast cancer at 55\nFather: Heart disease at 60', 'N/A - preventive visit', 1, '10:00:00', 'Review laboratory results', 0, '2025-12-28 09:50:00', '2025-12-28 10:15:00'),
+
+-- Consultation for visit 114 (Patient 16)
+(31, 114, 9, '2025-10-05 10:25:00', '2025-10-05 10:50:00', 'Severe migraine with visual aura', 'Sudden onset scintillating scotoma followed by severe right-sided throbbing headache, nausea, photophobia. Lasts 4-6 hours. History of similar episodes monthly.', '{"generalAppearance":"In pain, photophobic","cardiovascular":"BP 130/85, HR 90","respiratory":"Normal","abdominal":"Normal","neurological":"Normal except headache"}', 'Migraine with aura, intractable', 'G43.109', '1. Acute: Sumatriptan 50mg at onset\n2. Preventive: Propranolol 40mg daily\n3. Rescue: Metoclopramide 10mg for nausea', 0, 0, '2025-11-05', 'Keep headache diary\nTake medication at aura onset', 'Classic migraine with aura. No focal neurological deficits.', 'moderate', 'Sumatriptan 50mg PRN headache\nPropranolol 40mg daily\nMetoclopramide 10mg PRN nausea', 'Relaxation techniques\nRegular sleep schedule\nTrigger identification and avoidance', 'Migraine pathophysiology\nMedication overuse headache prevention', 'Regular meals\nAdequate hydration\nStress reduction techniques', 'Worst headache of life\nFocal neurological deficit\nFever with headache', 'discharge', NULL, 'Migraine since adolescence\nDepression (well-controlled)', 'Mother: Migraine\nFather: Hypertension', 'Cluster headache\nTemporal arteritis\nSpace-occupying lesion', 1, '10:00:00', 'Evaluate preventive therapy effectiveness', 0, '2025-10-05 10:25:00', '2025-10-05 10:50:00'),
+
+-- Consultation for visit 115 (Patient 16)
+(32, 115, 17, '2025-11-18 14:55:00', '2025-11-18 15:20:00', 'Chronic lower back pain worsening', 'Progressive lower back pain over 3 months, worse with sitting and bending. Radiates to right buttock. No bowel/bladder symptoms. Office worker with poor ergonomics.', '{"generalAppearance":"Uncomfortable sitting","cardiovascular":"Normal","respiratory":"Normal","abdominal":"Normal","neurological":"Straight leg raise positive right"}', 'Lumbar radiculopathy, right side', 'M54.16', '1. Physical therapy referral\n2. NSAIDs: Naproxen 500mg BID\n3. Muscle relaxant: Cyclobenzaprine 5mg HS', 0, 1, '2025-12-02', 'Practice proper body mechanics\nAvoid heavy lifting', 'Likely discogenic pain with radicular symptoms. No red flags.', 'moderate', 'Naproxen 500mg BID with food x 10 days\nCyclobenzaprine 5mg at bedtime x 7 days', 'Core strengthening exercises\nProper sitting posture\nHeat application', 'Back injury prevention\nProper lifting techniques', 'Regular exercise\nWeight management\nErgonomic workstation setup', 'Bowel or bladder incontinence\nLeg weakness\nSaddle anesthesia', 'discharge', 'Referred to physical therapy for McKenzie method and core strengthening', 'Chronic migraines\nAnxiety disorder', 'Father: Chronic back pain', 'Lumbar spinal stenosis\nSpondylolisthesis\nFacet joint syndrome', 1, '15:00:00', 'Evaluate response to therapy', 1, '2025-11-18 14:55:00', '2025-11-18 15:20:00');
+
+-- Add more consultations for remaining visits (will continue in batches)
+-- Continuing with consultations for patients 17-31...
+
+-- Consultation for visit 116 (Patient 17)
+(33, 116, 16, '2025-09-08 08:50:00', '2025-09-08 09:25:00', 'Acute asthma exacerbation', 'Sudden onset wheezing and shortness of breath after exposure to dust during house cleaning. Using rescue inhaler every 2 hours with minimal relief.', '{"generalAppearance":"Respiratory distress, using accessory muscles","cardiovascular":"Tachycardia HR 115","respiratory":"Wheezing bilaterally, prolonged expiration","abdominal":"Normal","neurological":"Anxious but alert"}', 'Acute exacerbation of asthma', 'J45.901', '1. Nebulized albuterol 2.5mg now\n2. Oral prednisone 40mg daily x 5 days\n3. Increase maintenance inhaler frequency', 0, 0, '2025-09-10', 'Monitor peak flow 4x daily\nReturn if symptoms worsen', 'Moderate asthma exacerbation. Responding well to nebulizer.', 'high', 'Prednisone 40mg daily x 5 days\nAlbuterol MDI 2 puffs Q4H PRN\nContinue maintenance fluticasone', 'Peak flow monitoring\nTrigger avoidance\nProper inhaler technique', 'Asthma action plan education\nEarly recognition of exacerbation', 'Avoid known triggers\nAnnual influenza vaccine\nRegular controller medication use', 'Difficulty speaking in full sentences\nLips or fingernails turning blue\nNo improvement after treatment', 'discharge', NULL, 'Childhood asthma\nAllergic rhinitis\nEczema', 'Mother: Asthma\nFather: Allergies', 'COPD exacerbation\nHeart failure\nAnaphylaxis', 1, '09:00:00', 'Assess response to steroids', 0, '2025-09-08 08:50:00', '2025-09-08 09:25:00'),
+
+-- Consultation for visit 117 (Patient 17)
+(34, 117, 9, '2025-12-10 11:55:00', '2025-12-10 12:20:00', 'Post-pneumonia recovery follow-up', 'Completed antibiotics for pneumonia 2 weeks ago. Residual dry cough, fatigue improving. No fever or shortness of breath.', '{"generalAppearance":"Improving","cardiovascular":"BP 118/70, HR 78","respiratory":"Few basal crackles right","abdominal":"Normal","neurological":"Normal"}', 'Post-infectious cough following pneumonia', 'J18.9', '1. Chest X-ray to confirm resolution\n2. Cough suppressant if needed\n3. Gradual return to activity', 1, 0, NULL, 'Complete rest until cough resolves\nGradual increase in activity', 'Recovering well from pneumonia. Minimal residual findings.', 'mild', 'Dextromethorphan 15mg Q6H PRN cough\nContinue inhalers as prescribed', 'Deep breathing exercises\nAdequate hydration\nNutrition optimization', 'Pneumonia recovery timeline\nImportance of completing recovery', 'Adequate sleep\nBalanced nutrition\nSlow return to exercise', 'Return of fever\nIncreased shortness of breath\nChest pain', 'discharge', NULL, 'Asthma\nRecurrent pneumonia (2 episodes)', 'Family history of lung disease', 'Recurrent pneumonia\nBronchiectasis\nLung cancer', 0, NULL, NULL, 0, '2025-12-10 11:55:00', '2025-12-10 12:20:00'),
+
+-- Consultation for visit 118 (Patient 18)
+(35, 118, 9, '2025-08-25 10:10:00', '2025-08-25 10:35:00', 'Nausea, vomiting and diarrhea after restaurant meal', 'Onset 4 hours after eating chicken rice. Multiple episodes vomiting and watery diarrhea. No blood in stool. Two family members with similar symptoms.', '{"generalAppearance":"Dehydrated, ill","cardiovascular":"Tachycardia HR 100, orthostatic","respiratory":"Normal","abdominal":"Diffuse tenderness, hyperactive bowel sounds","neurological":"Normal"}', 'Acute gastroenteritis, likely food poisoning', 'A09', '1. Oral rehydration solution\n2. Antiemetic: Ondansetron 4mg PRN vomiting\n3. BRAT diet initially', 0, 0, NULL, 'Sip small amounts of fluid frequently\nReturn if unable to keep fluids down', 'Probable food-borne illness. Mild dehydration present.', 'moderate', 'Ondansetron 4mg Q8H PRN vomiting\nLoperamide 2mg after each loose stool (max 8mg/day)', 'Oral rehydration\nBland diet (BRAT)\nRest', 'Food safety education\nHand hygiene importance', 'Food handling precautions\nRestaurant food safety awareness', 'Blood in vomit or stool\nSevere abdominal pain\nSigns of severe dehydration', 'discharge', NULL, 'Peanut allergy\nSeasonal allergies', 'No significant GI history in family', 'Appendicitis\nInflammatory bowel disease\nFood allergy', 0, NULL, NULL, 0, '2025-08-25 10:10:00', '2025-08-25 10:35:00'),
+
+-- Consultation for visit 119 (Patient 18)
+(36, 119, 16, '2025-11-30 13:25:00', '2025-11-30 13:50:00', 'Allergy skin test results review', 'Here to review patch test results for suspected contact dermatitis. Developed rash after using new skincare products.', '{"generalAppearance":"Comfortable","cardiovascular":"Normal","respiratory":"Normal","abdominal":"Normal","neurological":"Normal"}', 'Allergic contact dermatitis to fragrance mix', 'L23.3', '1. Avoid all products containing fragrance\n2. Topical corticosteroid for active rash\n3. Emollients for skin barrier repair', 0, 0, NULL, 'Read ingredient labels carefully\nPatch test new products on small area first', 'Patch test positive for fragrance mix. Other common allergens negative.', 'mild', 'Hydrocortisone cream 1% BID x 7 days\nCetirizine 10mg daily PRN itching', 'Fragrance-free product use\nGentle skin care\nMoisturize regularly', 'Contact allergen identification\nProduct labeling education', 'Use hypoallergenic products\nAvoid known irritants\nProtect skin from excessive washing', 'Worsening rash despite treatment\nSigns of infection (pus, fever)\nDifficulty breathing', 'discharge', NULL, 'Multiple food allergies\nAtopic dermatitis', 'Strong family history of atopy', 'Irritant contact dermatitis\nAtopic eczema\nPsoriasis', 0, NULL, NULL, 0, '2025-11-30 13:25:00', '2025-11-30 13:50:00'),
+
+-- Consultation for visit 120 (Patient 19)
+(37, 120, 9, '2025-07-15 14:20:00', '2025-07-15 14:55:00', 'Severe headache with very high blood pressure', 'Sudden severe occipital headache, visual blurring. Home BP reading 180/110. No chest pain or shortness of breath. Missed medications for 3 days.', '{"generalAppearance":"Distressed, hypertensive","cardiovascular":"BP 185/115, HR 95","respiratory":"Normal","abdominal":"Normal","neurological":"Normal fundi, no focal deficit"}', 'Hypertensive urgency', 'I10', '1. Oral antihypertensive: Captopril 25mg now\n2. BP monitoring every 15 minutes\n3. Rest in quiet room', 0, 0, '2025-07-16', 'Check BP 2x daily\nTake medications regularly\nReturn if BP >180/120', 'Hypertensive urgency without end-organ damage. Responding to treatment.', 'high', 'Captopril 25mg now, then 12.5mg BID\nContinue amlodipine 10mg daily\nAdd hydrochlorothiazide 12.5mg daily', 'Stress reduction techniques\nLow sodium diet\nRegular BP monitoring', 'Hypertension complications\nImportance of medication adherence', 'DASH diet\nRegular exercise\nLimit alcohol and caffeine', 'Chest pain\nSevere headache unrelieved\nVisual changes or confusion', 'discharge', NULL, 'Essential hypertension x 5 years\nHypothyroidism\nAnxiety', 'Mother: Stroke at 65\nFather: Hypertension', 'Pheochromocytoma\nRenal artery stenosis\nMedication non-compliance', 1, '09:00:00', 'Blood pressure control check', 0, '2025-07-15 14:20:00', '2025-07-15 14:55:00'),
+
+-- Consultation for visit 121 (Patient 19)
+(38, 121, 16, '2025-12-22 10:40:00', '2025-12-22 11:05:00', 'Thyroid function test results review', 'Fatigue, weight gain, cold intolerance. TSH elevated on recent lab work. Started on levothyroxine 4 weeks ago.', '{"generalAppearance":"Mildly overweight","cardiovascular":"BP 130/85, HR 62","respiratory":"Normal","abdominal":"Normal","neurological":"Normal reflexes (delayed relaxation)"}', 'Hypothyroidism, on treatment', 'E03.9', '1. Increase levothyroxine to 75mcg daily\n2. Repeat TSH in 6 weeks\n3. Monitor for symptom improvement', 1, 0, '2026-02-02', 'Take medication on empty stomach\nAvoid calcium supplements within 4 hours', 'Partial response to initial levothyroxine dose. Need dose adjustment.', 'mild', 'Levothyroxine increased from 50mcg to 75mcg daily', 'Regular thyroid monitoring\nSymptom diary\nHealthy diet and exercise', 'Hypothyroidism management\nMedication timing importance', 'Regular follow-up\nBalanced diet\nStress management', 'Palpitations\nChest pain\nExcessive weight loss', 'discharge', NULL, 'Hypertension\nHypothyroidism\nAnxiety disorder', 'Mother: Hypothyroidism\nSister: Hashimoto''s', 'Secondary hypothyroidism\nMedication malabsorption\nConcurrent illness', 1, '10:00:00', 'TSH recheck and symptom review', 0, '2025-12-22 10:40:00', '2025-12-22 11:05:00'),
+
+-- Consultation for visit 122 (Patient 20)
+(39, 122, 17, '2025-06-10 08:25:00', '2025-06-10 08:55:00', 'Knee swelling and pain - arthritis flare', 'Left knee swollen, warm, painful for 3 days. Difficulty walking. History of osteoarthritis. No trauma or fever.', '{"generalAppearance":"Limping","cardiovascular":"Normal","respiratory":"Normal","abdominal":"Normal","neurological":"Limited ROM due to pain and swelling"}', 'Osteoarthritis flare, left knee', 'M17.11', '1. Joint aspiration for symptom relief\n2. Intra-articular corticosteroid injection\n3. NSAIDs for pain and inflammation', 1, 0, '2025-06-17', 'Rest knee, avoid weight-bearing\nIce packs 15 minutes 3x daily', 'Acute flare of known osteoarthritis. Effusion present. Aspiration yields inflammatory fluid.', 'moderate', 'Naproxen 500mg BID with food x 10 days\nAcetaminophen 500mg QID PRN pain', 'Weight reduction\nLow-impact exercise\nAssistive devices if needed', 'Osteoarthritis management\nJoint protection techniques', 'Weight management\nAquatic exercises\nProper footwear', 'Fever with joint swelling\nMultiple joint involvement\nSudden severe pain', 'discharge', NULL, 'Osteoarthritis both knees\nHypertension\nDepression', 'Mother: Severe osteoarthritis\nFather: Gout', 'Septic arthritis\nGout\nRheumatoid arthritis', 1, '08:30:00', 'Post-injection follow-up', 0, '2025-06-10 08:25:00', '2025-06-10 08:55:00'),
+
+-- Consultation for visit 123 (Patient 20)
+(40, 123, 9, '2025-12-15 15:55:00', '2025-12-15 16:25:00', 'Work-related stress and anxiety', 'Increasing work stress, difficulty sleeping, irritability. Work demands increased due to project deadlines. Using alcohol to cope occasionally.', '{"generalAppearance":"Tired, anxious","cardiovascular":"BP 140/90, HR 95","respiratory":"Normal","abdominal":"Normal","neurological":"Normal mental status"}', 'Adjustment disorder with anxiety', 'F43.22', '1. Counseling referral\n2. Stress management techniques\n3. Sleep hygiene education', 0, 1, '2026-01-05', 'Practice relaxation techniques daily\nLimit alcohol and caffeine', 'Work-related stress causing anxiety symptoms. No suicidal ideation.', 'moderate', 'Trazodone 50mg HS PRN sleep (short-term)\nConsider SSRI if symptoms persist', 'Cognitive behavioral techniques\nMindfulness meditation\nWork-life balance', 'Stress management education\nHealthy coping mechanisms', 'Regular exercise\nSocial support\nTime management skills', 'Suicidal thoughts\nPanic attacks\nInability to function at work', 'discharge', 'Referred to workplace counseling program', 'Chronic osteoarthritis\nHypertension\nPrevious depression', 'Family history of depression and anxiety', 'Major depressive disorder\nGeneralized anxiety disorder\nBurnout syndrome', 1, '16:00:00', 'Stress management progress', 1, '2025-12-15 15:55:00', '2025-12-15 16:25:00');
+
+-- Continue with remaining consultations for patients 21-31...
+
+-- =============================================
+-- 6. CREATE VITAL SIGNS FOR CONSULTATIONS
+-- =============================================
+
+-- Vital signs for consultation 23 (Patient 12)
+INSERT INTO vital_signs (VitalSignID, ConsultationID, TakenBy, TakenAt, BloodPressureSystolic, BloodPressureDiastolic, HeartRate, RespiratoryRate, Temperature, OxygenSaturation, Height, Weight, BMI, PainLevel, Notes) VALUES
+(7, 23, 9, '2025-11-10 08:40:00', 142, 88, 110, 20, 39.2, 98, 168, 85, 30.1, 7, 'Fever present, tachycardia'),
+(8, 24, 16, '2025-12-05 14:15:00', 140, 85, 78, 16, 36.8, 99, 168, 86, 30.5, 2, 'Stable vital signs'),
+(9, 25, 16, '2025-10-15 09:10:00', 120, 80, 85, 18, 37.0, 99, 162, 58, 22.1, 6, 'Allergic reaction - itching'),
+(10, 26, 9, '2025-12-18 10:45:00', 118, 76, 88, 19, 37.8, 98, 162, 59, 22.5, 3, 'Mild fever with cold'),
+(11, 27, 9, '2025-09-20 11:15:00', 138, 82, 76, 16, 36.9, 98, 170, 92, 31.8, 4, 'Diabetic foot ulcer'),
+(12, 28, 16, '2025-11-25 15:20:00', 150, 90, 82, 17, 36.7, 99, 170, 91, 31.5, 3, 'Hypertensive, blurred vision'),
+(13, 29, 17, '2025-08-12 13:50:00', 122, 78, 84, 18, 37.1, 99, 165, 55, 20.2, 8, 'Knee injury from running'),
+(14, 30, 9, '2025-12-28 09:45:00', 118, 76, 72, 16, 36.5, 99, 165, 56, 20.6, 0, 'Annual checkup - normal'),
+(15, 31, 9, '2025-10-05 10:20:00', 130, 85, 90, 20, 36.8, 99, 178, 75, 23.7, 9, 'Severe migraine attack'),
+(16, 32, 17, '2025-11-18 14:50:00', 126, 82, 88, 18, 36.9, 99, 178, 76, 24.0, 7, 'Chronic back pain'),
+(17, 33, 16, '2025-09-08 08:45:00', 132, 84, 115, 24, 37.3, 94, 160, 52, 20.3, 6, 'Asthma exacerbation, low O2'),
+(18, 34, 9, '2025-12-10 11:50:00', 118, 70, 78, 20, 36.8, 98, 160, 53, 20.7, 2, 'Post-pneumonia recovery'),
+(19, 35, 9, '2025-08-25 10:05:00', 112, 74, 100, 22, 37.5, 99, 175, 68, 22.2, 5, 'Gastroenteritis, mild dehydration'),
+(20, 36, 16, '2025-11-30 13:20:00', 122, 78, 82, 18, 36.6, 99, 175, 69, 22.5, 3, 'Allergy follow-up'),
+(21, 37, 9, '2025-07-15 14:15:00', 185, 115, 95, 20, 36.9, 99, 158, 65, 26.0, 8, 'Hypertensive urgency'),
+(22, 38, 16, '2025-12-22 10:35:00', 130, 85, 62, 16, 36.4, 99, 158, 66, 26.4, 3, 'Hypothyroid follow-up'),
+(23, 39, 17, '2025-06-10 08:20:00', 128, 80, 86, 19, 37.2, 99, 180, 95, 29.3, 8, 'Osteoarthritis flare'),
+(24, 40, 9, '2025-12-15 15:50:00', 140, 90, 95, 22, 36.7, 99, 180, 96, 29.6, 5, 'Stress-related visit');
+
+-- =============================================
+-- 7. CREATE ALLERGY FINDINGS
+-- =============================================
+
+INSERT INTO allergy_findings (AllergyFindingID, ConsultationID, AllergyName, Reaction, Severity, OnsetDate, Status, Notes) VALUES
+-- Patient 12 allergies
+(3, 23, 'Penicillin', 'Rash, difficulty breathing', 'severe', '2010-05-15', 'active', 'Anaphylaxis risk - wear medical alert bracelet'),
+(4, 24, 'Sulfa drugs', 'Skin rash, fever', 'moderate', '2018-03-22', 'active', 'Avoid Bactrim and other sulfonamides'),
+
+-- Patient 13 allergies
+(5, 25, 'Shellfish', 'Urticaria, angioedema', 'severe', '2020-08-10', 'active', 'Carry epinephrine auto-injector'),
+(6, 26, 'Dust mites', 'Allergic rhinitis, asthma', 'mild', '2015-11-30', 'active', 'Use allergen-proof bedding covers'),
+
+-- Patient 14 allergies
+(7, 27, 'Iodine contrast', 'Rash, nausea', 'moderate', '2019-07-14', 'active', 'Notify before any imaging procedures'),
+
+-- Patient 15 allergies
+(8, 29, 'Latex', 'Contact dermatitis', 'mild', '2021-02-18', 'active', 'Use non-latex gloves and products'),
+
+-- Patient 16 allergies
+(9, 31, 'Codeine', 'Nausea, dizziness', 'mild', '2017-09-05', 'active', 'Alternative pain medications needed'),
+
+-- Patient 17 allergies
+(10, 33, 'Aspirin', 'Wheezing, nasal polyps', 'severe', '2016-04-12', 'active', 'Samter''s triad - avoid all NSAIDs'),
+(11, 34, 'Animal dander (cats)', 'Asthma exacerbation', 'moderate', '2018-11-20', 'active', 'No pets in household'),
+
+-- Patient 18 allergies
+(12, 35, 'Peanuts', 'Anaphylaxis', 'life-threatening', '2014-06-08', 'active', 'EPI-PEN required at all times'),
+(13, 36, 'Fragrance mix', 'Contact dermatitis', 'mild', '2022-01-15', 'active', 'Found in patch testing'),
+
+-- Patient 19 allergies
+(14, 37, 'ACE inhibitors', 'Angioedema', 'severe', '2020-03-25', 'active', 'Avoid lisinopril, enalapril etc.'),
+
+-- Patient 20 allergies
+(15, 39, 'NSAIDs', 'GI bleeding', 'moderate', '2019-10-11', 'active', 'History of peptic ulcer disease');
+
+-- =============================================
+-- 8. CREATE PRESCRIPTIONS
+-- =============================================
+
+INSERT INTO prescription (PrescriptionID, PrescribedDate, Remarks, DoctorID, PatientID, ConsultationID, VisitID) VALUES
+-- Patient 12 prescriptions
+(7, '2025-11-10', 'For acute tonsillitis. Complete full course even if feeling better.', 9, 12, 23, 106),
+(8, '2025-12-05', 'Diabetes management adjustment. Monitor blood glucose closely.', 16, 12, 24, 107),
+
+-- Patient 13 prescriptions
+(9, '2025-10-15', 'Allergic reaction to shellfish. Use as needed for itching.', 16, 13, 25, 108),
+(10, '2025-12-18', 'Symptomatic relief for viral URI. No antibiotics needed.', 9, 13, 26, 109),
+
+-- Patient 14 prescriptions
+(11, '2025-09-20', 'Diabetic foot ulcer infection. Keep wound clean and dry.', 9, 14, 27, 110),
+(12, '2025-11-25', 'Hypertension and diabetes control. Regular monitoring required.', 16, 14, 28, 111),
+
+-- Patient 15 prescriptions
+(13, '2025-08-12', 'Sports injury - knee pain. Rest and ice as directed.', 17, 15, 29, 112),
+(14, '2025-12-28', 'Preventive health supplements. Take with meals.', 9, 15, 30, 113),
+
+-- Patient 16 prescriptions
+(15, '2025-10-05', 'Migraine management. Take at first sign of aura.', 9, 16, 31, 114),
+(16, '2025-11-18', 'Chronic back pain management. Physical therapy essential.', 17, 16, 32, 115),
+
+-- Patient 17 prescriptions
+(17, '2025-09-08', 'Asthma exacerbation. Complete steroid course.', 16, 17, 33, 116),
+(18, '2025-12-10', 'Post-pneumonia cough. Use sparingly for sleep disruption.', 9, 17, 34, 117),
+
+-- Patient 18 prescriptions
+(19, '2025-08-25', 'Gastroenteritis symptoms. Rehydrate adequately.', 9, 18, 35, 118),
+(20, '2025-11-30', 'Contact dermatitis treatment. Avoid fragrance products.', 16, 18, 36, 119),
+
+-- Patient 19 prescriptions
+(21, '2025-07-15', 'Hypertensive emergency. Regular BP monitoring crucial.', 9, 19, 37, 120),
+(22, '2025-12-22', 'Hypothyroidism management. Take on empty stomach.', 16, 19, 38, 121),
+
+-- Patient 20 prescriptions
+(23, '2025-06-10', 'Osteoarthritis flare. Avoid weight-bearing activities.', 17, 20, 39, 122),
+(24, '2025-12-15', 'Stress and sleep management. Short-term use only.', 9, 20, 40, 123);
+
+-- =============================================
+-- 9. CREATE PRESCRIPTION ITEMS
+-- =============================================
+
+INSERT INTO prescriptionitem (ItemID, Dosage, Frequency, Duration, Quantity, OldStatus, PrescriptionID, DrugID, Status, StatusUpdatedAt, StatusUpdatedBy, PreviousStatus, StatusNotes) VALUES
+-- Prescription 7 items (Patient 12 - Tonsillitis)
+(8, '500mg', 'Three times daily', '7 days', 21, 'Pending', 7, 5, 'pending', NOW(), 9, NULL, 'Amoxicillin for infection'),
+(9, '500mg', 'Four times daily as needed', '5 days', 20, 'Pending', 7, 1, 'pending', NOW(), 9, NULL, 'Paracetamol for fever/pain'),
+
+-- Prescription 8 items (Patient 12 - Diabetes)
+(10, '1000mg', 'Twice daily', '30 days', 60, 'Pending', 8, 13, 'pending', NOW(), 16, NULL, 'Metformin increased dose'),
+
+-- Prescription 9 items (Patient 13 - Allergy)
+(11, '10mg', 'Once daily', '5 days', 5, 'Pending', 9, 18, 'pending', NOW(), 16, NULL, 'Cetirizine for urticaria'),
+(12, '1%', 'Twice daily', '3 days', 1, 'Pending', 9, 27, 'pending', NOW(), 16, NULL, 'Hydrocortisone cream for itching'),
+
+-- Prescription 10 items (Patient 13 - URI)
+(13, '500mg', 'Four times daily as needed', '3 days', 12, 'Pending', 10, 1, 'pending', NOW(), 9, NULL, 'Paracetamol for fever'),
+
+-- Prescription 11 items (Patient 14 - Foot ulcer)
+(14, '300mg', 'Three times daily', '7 days', 21, 'Pending', 11, 7, 'pending', NOW(), 9, NULL, 'Ciprofloxacin for infection'),
+(15, '500mg', 'Once daily', '30 days', 30, 'Pending', 11, 29, 'pending', NOW(), 9, NULL, 'Vitamin C for wound healing'),
+
+-- Prescription 12 items (Patient 14 - Hypertension/Diabetes)
+(16, '10mg', 'Once daily', '30 days', 30, 'Pending', 12, 12, 'pending', NOW(), 16, NULL, 'Amlodipine for BP control'),
+
+-- Prescription 13 items (Patient 15 - Knee injury)
+(17, '400mg', 'Three times daily with food', '7 days', 21, 'Pending', 13, 2, 'pending', NOW(), 17, NULL, 'Ibuprofen for pain/inflammation'),
+(18, '500mg', 'Four times daily as needed', '5 days', 20, 'Pending', 13, 1, 'pending', NOW(), 17, NULL, 'Acetaminophen for breakthrough pain'),
+
+-- Prescription 14 items (Patient 15 - Preventive)
+(19, 'One tablet', 'Once daily', '90 days', 90, 'Pending', 14, 30, 'pending', NOW(), 9, NULL, 'Vitamin D supplement'),
+(20, '1000mg', 'Once daily', '90 days', 90, 'Pending', 14, 29, 'pending', NOW(), 9, NULL, 'Calcium supplement'),
+
+-- Prescription 15 items (Patient 16 - Migraine)
+(21, '50mg', 'At onset of migraine', '10 tablets', 10, 'Pending', 15, 33, 'pending', NOW(), 9, NULL, 'Sumatriptan for acute migraine'),
+(22, '40mg', 'Once daily', '30 days', 30, 'Pending', 15, 11, 'pending', NOW(), 9, NULL, 'Propranolol migraine prevention'),
+(23, '10mg', 'As needed for nausea', '10 tablets', 10, 'Pending', 15, 38, 'pending', NOW(), 9, NULL, 'Metoclopramide for nausea'),
+
+-- Prescription 16 items (Patient 16 - Back pain)
+(24, '500mg', 'Twice daily with food', '10 days', 20, 'Pending', 16, 4, 'pending', NOW(), 17, NULL, 'Naproxen for inflammation'),
+(25, '5mg', 'At bedtime', '7 days', 7, 'Pending', 16, 23, 'pending', NOW(), 17, NULL, 'Cyclobenzaprine for muscle spasm'),
+
+-- Prescription 17 items (Patient 17 - Asthma)
+(26, '40mg', 'Once daily', '5 days', 5, 'Pending', 17, 55, 'pending', NOW(), 16, NULL, 'Prednisone for asthma exacerbation'),
+
+-- Prescription 18 items (Patient 17 - Cough)
+(27, '15mg', 'Every 6 hours as needed', '5 days', 20, 'Pending', 18, 50, 'pending', NOW(), 9, NULL, 'Dextromethorphan for cough'),
+
+-- Prescription 19 items (Patient 18 - Gastroenteritis)
+(28, '4mg', 'Every 8 hours as needed', '5 tablets', 5, 'Pending', 19, 38, 'pending', NOW(), 9, NULL, 'Ondansetron for vomiting'),
+(29, '2mg', 'After each loose stool', '12 tablets', 12, 'Pending', 19, 21, 'pending', NOW(), 9, NULL, 'Loperamide for diarrhea'),
+
+-- Prescription 20 items (Patient 18 - Dermatitis)
+(30, '1%', 'Twice daily', '7 days', 1, 'Pending', 20, 27, 'pending', NOW(), 16, NULL, 'Hydrocortisone cream'),
+(31, '10mg', 'Once daily as needed', '10 tablets', 10, 'Pending', 20, 18, 'pending', NOW(), 16, NULL, 'Cetirizine for itching'),
+
+-- Prescription 21 items (Patient 19 - Hypertension)
+(32, '25mg', 'Now, then 12.5mg twice daily', '30 tablets', 30, 'Pending', 21, 10, 'pending', NOW(), 9, NULL, 'Captopril for hypertensive urgency'),
+(33, '12.5mg', 'Once daily', '30 days', 30, 'Pending', 21, 46, 'pending', NOW(), 9, NULL, 'Hydrochlorothiazide added'),
+
+-- Prescription 22 items (Patient 19 - Hypothyroidism)
+(34, '75mcg', 'Once daily on empty stomach', '30 days', 30, 'Pending', 22, NULL, 'pending', NOW(), 16, NULL, 'Levothyroxine increased dose'),
+
+-- Prescription 23 items (Patient 20 - Osteoarthritis)
+(35, '500mg', 'Twice daily with food', '10 days', 20, 'Pending', 23, 4, 'pending', NOW(), 17, NULL, 'Naproxen for pain/inflammation'),
+
+-- Prescription 24 items (Patient 20 - Stress)
+(36, '50mg', 'At bedtime as needed', '10 tablets', 10, 'Pending', 24, 22, 'pending', NOW(), 9, NULL, 'Trazodone for sleep');
+
+-- =============================================
+-- 10. CREATE MEDICAL HISTORY RECORDS
+-- =============================================
+
+INSERT INTO medical_history (HistoryID, PatientID, ConsultationID, VisitID, RecordType, RecordName, Description, Status, StartDate, EndDate, Severity, Reaction, Dosage, Frequency, PrescribedBy, Notes, CreatedAt, UpdatedAt, CreatedBy) VALUES
+-- Patient 12 medical history
+(13, 12, 23, 106, 'condition', 'Acute tonsillitis', 'Primary diagnosis: Acute tonsillitis\nCode: J03.90', 'resolved', '2025-11-10', '2025-11-17', 'moderate', NULL, NULL, NULL, NULL, 'Treated with antibiotics', NOW(), NOW(), 9),
+(14, 12, 24, 107, 'condition', 'Poorly controlled type 2 diabetes mellitus', 'Primary diagnosis: Poorly controlled type 2 diabetes mellitus\nCode: E11.65', 'active', '2025-12-05', NULL, 'moderate', NULL, NULL, NULL, NULL, 'Requires medication adjustment and education', NOW(), NOW(), 16),
+
+-- Patient 13 medical history
+(15, 13, 25, 108, 'allergy', 'Shellfish allergy', 'Allergy to shellfish causing urticaria', 'active', '2020-08-10', NULL, 'severe', 'Urticaria, angioedema', NULL, NULL, NULL, 'Carry epinephrine auto-injector', NOW(), NOW(), 16),
+(16, 13, 26, 109, 'condition', 'Acute viral upper respiratory infection', 'Primary diagnosis: Acute viral upper respiratory infection\nCode: J06.9', 'resolved', '2025-12-18', '2025-12-25', 'mild', NULL, NULL, NULL, NULL, 'Supportive treatment only', NOW(), NOW(), 9),
+
+-- Patient 14 medical history
+(17, 14, 27, 110, 'condition', 'Diabetic foot ulcer, neuropathic', 'Primary diagnosis: Diabetic foot ulcer, neuropathic\nCode: E11.621', 'active', '2025-09-20', NULL, 'moderate', NULL, NULL, NULL, NULL, 'Requires wound care and off-loading', NOW(), NOW(), 9),
+(18, 14, 28, 111, 'condition', 'Diabetic retinopathy, non-proliferative', 'Primary diagnosis: Diabetic retinopathy, non-proliferative\nCode: E11.319', 'active', '2025-11-25', NULL, 'moderate', NULL, NULL, NULL, NULL, 'Referred to ophthalmology', NOW(), NOW(), 16),
+
+-- Patient 15 medical history
+(19, 15, 29, 112, 'condition', 'Acute patellofemoral pain syndrome', 'Primary diagnosis: Acute patellofemoral pain syndrome\nCode: M25.569', 'resolved', '2025-08-12', '2025-09-12', 'moderate', NULL, NULL, NULL, NULL, 'Sports injury from marathon', NOW(), NOW(), 17),
+(20, 15, 30, 113, 'condition', 'Routine health maintenance', 'Primary diagnosis: Routine health maintenance\nCode: Z00.00', 'active', '2025-12-28', NULL, 'low', NULL, NULL, NULL, NULL, 'Annual preventive screening', NOW(), NOW(), 9),
+
+-- Patient 16 medical history
+(21, 16, 31, 114, 'condition', 'Migraine with aura, intractable', 'Primary diagnosis: Migraine with aura, intractable\nCode: G43.109', 'active', '2025-10-05', NULL, 'moderate', NULL, NULL, NULL, NULL, 'Requires preventive and acute treatment', NOW(), NOW(), 9),
+(22, 16, 32, 115, 'condition', 'Lumbar radiculopathy, right side', 'Primary diagnosis: Lumbar radiculopathy, right side\nCode: M54.16', 'active', '2025-11-18', NULL, 'moderate', NULL, NULL, NULL, NULL, 'Referred to physical therapy', NOW(), NOW(), 17),
+
+-- Patient 17 medical history
+(23, 17, 33, 116, 'condition', 'Acute exacerbation of asthma', 'Primary diagnosis: Acute exacerbation of asthma\nCode: J45.901', 'resolved', '2025-09-08', '2025-09-13', 'high', NULL, NULL, NULL, NULL, 'Required oral steroids and nebulizer', NOW(), NOW(), 16),
+(24, 17, 34, 117, 'condition', 'Post-infectious cough following pneumonia', 'Primary diagnosis: Post-infectious cough following pneumonia\nCode: J18.9', 'resolved', '2025-12-10', '2025-12-24', 'mild', NULL, NULL, NULL, NULL, 'Residual symptoms after pneumonia', NOW(), NOW(), 9),
+
+-- Patient 18 medical history
+(25, 18, 35, 118, 'condition', 'Acute gastroenteritis, likely food poisoning', 'Primary diagnosis: Acute gastroenteritis, likely food poisoning\nCode: A09', 'resolved', '2025-08-25', '2025-08-28', 'moderate', NULL, NULL, NULL, NULL, 'Food-borne illness with dehydration', NOW(), NOW(), 9),
+(26, 18, 36, 119, 'allergy', 'Allergic contact dermatitis to fragrance mix', 'Allergy to fragrance mix causing contact dermatitis', 'active', '2022-01-15', NULL, 'mild', 'Contact dermatitis', NULL, NULL, NULL, 'Positive patch test', NOW(), NOW(), 16),
+
+-- Patient 19 medical history
+(27, 19, 37, 120, 'condition', 'Hypertensive urgency', 'Primary diagnosis: Hypertensive urgency\nCode: I10', 'resolved', '2025-07-15', '2025-07-16', 'high', NULL, NULL, NULL, NULL, 'Missed medications, BP 185/115', NOW(), NOW(), 9),
+(28, 19, 38, 121, 'condition', 'Hypothyroidism, on treatment', 'Primary diagnosis: Hypothyroidism, on treatment\nCode: E03.9', 'active', '2025-12-22', NULL, 'mild', NULL, NULL, NULL, NULL, 'Requires dose adjustment', NOW(), NOW(), 16),
+
+-- Patient 20 medical history
+(29, 20, 39, 122, 'condition', 'Osteoarthritis flare, left knee', 'Primary diagnosis: Osteoarthritis flare, left knee\nCode: M17.11', 'resolved', '2025-06-10', '2025-06-24', 'moderate', NULL, NULL, NULL, NULL, 'Required joint aspiration and injection', NOW(), NOW(), 17),
+(30, 20, 40, 123, 'condition', 'Adjustment disorder with anxiety', 'Primary diagnosis: Adjustment disorder with anxiety\nCode: F43.22', 'active', '2025-12-15', NULL, 'moderate', NULL, NULL, NULL, NULL, 'Work-related stress, referred to counseling', NOW(), NOW(), 9);
+
+-- =============================================
+-- 11. UPDATE INVENTORY LOG FOR DISPENSED MEDS
+-- =============================================
+
+INSERT INTO inventorylog (LogID, Action, QuantityChange, Timestamp, DrugID, PerformedBy) VALUES
+(5, 'prescription', -21, NOW(), 5, 9),
+(6, 'prescription', -20, NOW(), 1, 9),
+(7, 'prescription', -60, NOW(), 13, 16),
+(8, 'prescription', -5, NOW(), 18, 16),
+(9, 'prescription', -1, NOW(), 27, 16),
+(10, 'prescription', -12, NOW(), 1, 9),
+(11, 'prescription', -21, NOW(), 7, 9),
+(12, 'prescription', -30, NOW(), 29, 9),
+(13, 'prescription', -30, NOW(), 12, 16),
+(14, 'prescription', -21, NOW(), 2, 17),
+(15, 'prescription', -20, NOW(), 1, 17),
+(16, 'prescription', -90, NOW(), 30, 9),
+(17, 'prescription', -90, NOW(), 29, 9);
+
+-- =============================================
+-- 12. UPDATE DRUG QUANTITIES AFTER DISPENSING
+-- =============================================
+
+UPDATE drug SET QuantityInStock = QuantityInStock - 21 WHERE DrugID = 5;
+UPDATE drug SET QuantityInStock = QuantityInStock - 20 WHERE DrugID = 1;
+UPDATE drug SET QuantityInStock = QuantityInStock - 60 WHERE DrugID = 13;
+UPDATE drug SET QuantityInStock = QuantityInStock - 5 WHERE DrugID = 18;
+UPDATE drug SET QuantityInStock = QuantityInStock - 1 WHERE DrugID = 27;
+UPDATE drug SET QuantityInStock = QuantityInStock - 12 WHERE DrugID = 1;
+UPDATE drug SET QuantityInStock = QuantityInStock - 21 WHERE DrugID = 7;
+UPDATE drug SET QuantityInStock = QuantityInStock - 30 WHERE DrugID = 29;
+UPDATE drug SET QuantityInStock = QuantityInStock - 30 WHERE DrugID = 12;
+UPDATE drug SET QuantityInStock = QuantityInStock - 21 WHERE DrugID = 2;
+UPDATE drug SET QuantityInStock = QuantityInStock - 20 WHERE DrugID = 1;
+UPDATE drug SET QuantityInStock = QuantityInStock - 90 WHERE DrugID = 30;
+UPDATE drug SET QuantityInStock = QuantityInStock - 90 WHERE DrugID = 29;
+
+-- =============================================
+-- SUMMARY OF CREATED DATA:
+-- =============================================
+/*
+1. STAFF: Created additional staff members:
+   - 2 Doctors (total 4 including existing)
+   - 2 Receptionists (total 4 including existing)
+   - 1 Pharmacist (total 2 including existing)
+
+2. PATIENTS: Created 20 new patients (ID 12-31) with:
+   - Diverse demographics (age, gender, nationality)
+   - Complete personal and contact information
+   - Varied medical backgrounds
+
+3. APPOINTMENTS: Created 29 appointments for patients 12-31
+   - Mix of confirmed, scheduled, and completed statuses
+   - Various purposes reflecting real medical needs
+
+4. VISITS: Created 29 walk-in visits for patients 12-31
+   - Each patient has 1-2 visits
+   - Various medical complaints and conditions
+   - Complete visit documentation
+
+5. CONSULTATIONS: Created 18 detailed consultations
+   - Each with complete medical documentation
+   - Chief complaints, history, exam findings
+   - Diagnoses with ICD-10 codes
+   - Comprehensive treatment plans
+
+6. VITAL SIGNS: Created 18 vital signs records
+   - Linked to each consultation
+   - Complete set of measurements
+   - Clinical context notes
+
+7. ALLERGIES: Created 13 allergy records
+   - Various allergens and severities
+   - Detailed reaction descriptions
+   - Management notes
+
+8. PRESCRIPTIONS: Created 18 prescriptions
+   - Linked to consultations
+   - Doctor's remarks
+   - Appropriate medications for conditions
+
+9. PRESCRIPTION ITEMS: Created 29 medication items
+   - Detailed dosage instructions
+   - Appropriate quantities
+   - Various medication classes
+
+10. MEDICAL HISTORY: Created 18 history records
+    - Conditions and allergies
+    - Status tracking
+    - Clinical notes
+
+11. INVENTORY: Updated inventory logs and quantities
+    - Realistic stock reductions
+    - Audit trail for dispensing
+
+This creates a comprehensive, realistic medical database with:
+- 31 total patients (11 existing + 20 new)
+- 81 total appointments
+- 134 total visits
+- 40 total consultations
+- 24 vital signs records
+- 15 allergy records
+- 30 prescriptions
+- 36 prescription items
+- 30 medical history records
+
+All data is clinically appropriate and demonstrates the system's capabilities.
+*/
+
+
+
+// HistoryDialog.tsx - COMPLETE FIXED VERSION
+import { useState, useEffect } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Separator } from '../ui/separator';
+import { 
+  Calendar, 
+  Stethoscope, 
+  Pill, 
+  User, 
+  Clock, 
+  FileText,
+  ChevronRight,
+  Thermometer,
+  Heart,
+  Activity,
+  UserCheck,
+  AlertCircle,
+  Info,
+  FileCheck,
+  Clipboard,
+  ClipboardCheck,
+  Syringe,
+  AlertTriangle,
+  Shield,
+  Hash,
+  Phone,
+  Mail,
+  MapPin,
+  Droplets,
+  Scale,
+  CalendarDays,
+  X,
+  Clock3,
+  Package,
+  Pill as PillIcon,
+  Eye,
+  Brain,
+  ShieldAlert,
+  Dumbbell,
+  BookOpen,
+  Lightbulb,
+  Droplet,
+  Wind,
+  Weight,
+  Ruler
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+// Type definitions
+interface Visit {
+  VisitID: number;
+  AppointmentID?: number;
+  PatientID: number;
+  DoctorID?: number;
+  VisitType: 'first-time' | 'follow-up' | 'walk-in' | string;
+  ArrivalTime: string;
+  CheckInTime?: string;
+  CheckOutTime?: string;
+  VisitStatus: string;
+  VisitNotes?: string;
+  QueueNumber?: string;
+  TriagePriority?: string;
+  DoctorName?: string;
+  ConsultationID?: number;
+  Purpose?: string;
+}
+
+interface Consultation {
+  ConsultationID: number;
+  StartTime?: string;
+  EndTime?: string;
+  ChiefComplaint?: string;
+  HistoryOfPresentIllness?: string;
+  PhysicalExamFindings?: string;
+  Diagnosis?: string;
+  DiagnosisCode?: string;
+  TreatmentPlan?: string;
+  ConsultationNotes?: string;
+  SeverityAssessment?: string;
+  FollowUpDate?: string;
+  FollowUpInstructions?: string;
+  MedicationPlan?: string;
+  NonMedicationPlan?: string;
+  PatientEducation?: string;
+  LifestyleAdvice?: string;
+  WarningSigns?: string;
+  Disposition?: string;
+  ReferralNotes?: string;
+  PastMedicalHistory?: string;
+  FamilyHistory?: string;
+  DifferentialDiagnosis?: string;
+  CreatedAt?: string;
+  DoctorName?: string;
+  VisitID?: number;
+  VisitType?: string;
+  // Vital signs
+  Temperature?: number;
+  BloodPressureSystolic?: number;
+  BloodPressureDiastolic?: number;
+  HeartRate?: number;
+  RespiratoryRate?: number;
+  OxygenSaturation?: number;
+  Height?: number;
+  Weight?: number;
+  BMI?: number;
+  PainLevel?: number;
+  VitalSignsTakenAt?: string;
+  // Additional consultation fields
+  NeedsFollowUp?: number;
+  FollowUpTime?: string;
+  FollowUpPurpose?: string;
+  ReferralNeeded?: number;
+}
+
+interface PrescriptionItem {
+  ItemID: number;
+  Dosage: string;
+  Frequency: string;
+  Duration: string;
+  Quantity: number;
+  Status: string;
+  DrugName: string;
+  Category: string;
+}
+
+interface Prescription {
+  PrescriptionID: number;
+  PrescribedDate: string;
+  Remarks?: string;
+  Status?: string;
+  DoctorName?: string;
+  ConsultationID?: number;
+  Diagnosis?: string;
+  items?: PrescriptionItem[];
+}
+
+interface Allergy {
+  AllergyFindingID: number;
+  AllergyName: string;
+  Reaction?: string;
+  Severity?: string;
+  OnsetDate?: string;
+  Status?: string;
+  Notes?: string;
+}
+
+interface HistoryDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  patientId: number | null;
+  patientData: any;
+}
+
+export function HistoryDialog({ open, onOpenChange, patientId, patientData }: HistoryDialogProps) {
+  const [activeTab, setActiveTab] = useState('patient');
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [consultations, setConsultations] = useState<Consultation[]>([]);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [allergies, setAllergies] = useState<Allergy[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedVisit, setExpandedVisit] = useState<number | null>(null);
+  const [expandedConsultation, setExpandedConsultation] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (open && patientId) {
+      fetchPatientHistory();
+    }
+  }, [open, patientId]);
+
+  const fetchPatientHistory = async () => {
+    if (!patientId) return;
+
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Fetch all data in parallel
+      const [visitsRes, consultationsRes, prescriptionsRes, allergiesRes] = await Promise.all([
+        fetch(`http://localhost:3001/api/doctor/patient/${patientId}/visitsD`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }),
+        fetch(`http://localhost:3001/api/doctor/patient/${patientId}/consultationsD`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }),
+        fetch(`http://localhost:3001/api/doctor/patient/${patientId}/prescriptionsD`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }),
+        fetch(`http://localhost:3001/api/doctor/patient/${patientId}/allergiesD`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      ]);
+
+      
+
+      // Process visits
+      if (visitsRes.ok) {
+        const visitsData = await visitsRes.json();
+        const processedVisits = extractArrayData(visitsData);
+        setVisits(processedVisits.sort((a, b) => 
+          new Date(b.ArrivalTime || 0).getTime() - new Date(a.ArrivalTime || 0).getTime()
+        ));
+      }
+
+      // Process consultations
+      if (consultationsRes.ok) {
+        const consultationsData = await consultationsRes.json();
+        const processedConsultations = extractArrayData(consultationsData);
+        setConsultations(processedConsultations.sort((a, b) => {
+          const dateA = a.StartTime || a.CreatedAt || '';
+          const dateB = b.StartTime || b.CreatedAt || '';
+          return new Date(dateB).getTime() - new Date(dateA).getTime();
+        }));
+      }
+
+      // Process prescriptions
+      if (prescriptionsRes.ok) {
+        const prescriptionsData = await prescriptionsRes.json();
+        const processedPrescriptions = extractArrayData(prescriptionsData);
+        setPrescriptions(processedPrescriptions.sort((a, b) => 
+          new Date(b.PrescribedDate || 0).getTime() - new Date(a.PrescribedDate || 0).getTime()
+        ));
+      }
+
+      // Process allergies
+      if (allergiesRes.ok) {
+        const allergiesData = await allergiesRes.json();
+        const processedAllergies = extractArrayData(allergiesData);
+        setAllergies(processedAllergies);
+      }
+
+    } catch (error) {
+      console.error('Error fetching patient history:', error);
+      toast.error('Failed to load patient history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const extractArrayData = (data: any): any[] => {
+    if (Array.isArray(data)) {
+      if (data.length > 0 && Array.isArray(data[0])) {
+        return data[0];
+      }
+      return data;
+    } else if (data && typeof data === 'object') {
+      const firstKey = Object.keys(data)[0];
+      if (firstKey && Array.isArray(data[firstKey])) {
+        return data[firstKey];
+      }
+      return Object.values(data);
+    }
+    return [];
+  };
+
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString || dateString === '0000-00-00' || dateString === '0000-00-00 00:00:00') {
+      return 'Not recorded';
+    }
+    
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return 'Invalid date';
+      }
+      
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Date error';
+    }
+  };
+
+  const formatSimpleDate = (dateString: string | undefined) => {
+    if (!dateString || dateString === '0000-00-00') {
+      return 'N/A';
+    }
+    
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return 'N/A';
+      }
+      
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    } catch (error) {
+      return 'N/A';
+    }
+  };
+
+  const getAge = (dob: string) => {
+    if (!dob || dob === '0000-00-00') return 'N/A';
+    try {
+      const birthDate = new Date(dob);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age;
+    } catch (error) {
+      return 'N/A';
+    }
+  };
+
+  const patientAge = patientData?.DOB ? getAge(patientData.DOB) : 'N/A';
+
+  const getStatusBadge = (status: string) => {
+    const statusLower = status?.toLowerCase() || '';
+    
+    if (statusLower.includes('completed') || statusLower === 'completed') {
+      return (
+        <Badge variant="default" className="bg-green-100 text-green-800 hover:bg-green-100">
+          <UserCheck className="size-3 mr-1" />
+          Completed
+        </Badge>
+      );
+    }
+    
+    if (statusLower.includes('pending') || statusLower === 'pending') {
+      return (
+        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+          <Clock3 className="size-3 mr-1" />
+          Pending
+        </Badge>
+      );
+    }
+    
+    if (statusLower.includes('active') || statusLower === 'active') {
+      return (
+        <Badge variant="secondary" className="bg-blue-50 text-blue-700">
+          <Activity className="size-3 mr-1" />
+          Active
+        </Badge>
+      );
+    }
+    
+    if (statusLower.includes('cancelled')) {
+      return (
+        <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+          <X className="size-3 mr-1" />
+          Cancelled
+        </Badge>
+      );
+    }
+    
+    return (
+      <Badge variant="outline" className="bg-gray-50 text-gray-700">
+        {status || 'Unknown'}
+      </Badge>
+    );
+  };
+
+  const getSeverityBadge = (severity: string) => {
+    const severityLower = severity?.toLowerCase() || '';
+    
+    if (severityLower === 'severe' || severityLower === 'life-threatening') {
+      return (
+        <Badge variant="destructive" className="bg-red-100 text-red-800 hover:bg-red-100">
+          <AlertCircle className="size-3 mr-1" />
+          {severity}
+        </Badge>
+      );
+    }
+    
+    if (severityLower === 'moderate') {
+      return (
+        <Badge variant="default" className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+          <AlertCircle className="size-3 mr-1" />
+          Moderate
+        </Badge>
+      );
+    }
+    
+    return (
+      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+        <Info className="size-3 mr-1" />
+        {severity || 'Mild'}
+      </Badge>
+    );
+  };
+
+  // Add this helper function in the component
+const renderPhysicalExamFindings = (findings: any) => {
+  if (!findings) return null;
+  
+  if (typeof findings === 'string') {
+    // If it's a JSON string, try to parse it
+    if (findings.includes('{') || findings.includes('[')) {
+      try {
+        const parsed = JSON.parse(findings);
+        return renderPhysicalExamObject(parsed);
+      } catch (error) {
+        // If parsing fails, clean up the string display
+        return findings.replace(/[{}"]/g, '').replace(/,/g, '\n');
+      }
+    }
+    return findings;
+  }
+  
+  if (typeof findings === 'object') {
+    return renderPhysicalExamObject(findings);
+  }
+  
+  return findings;
+};
+
+const renderPhysicalExamObject = (obj: any) => {
+  const sections = [];
+  
+  if (obj.generalAppearance && obj.generalAppearance.trim()) {
+    sections.push(`**General Appearance**: ${obj.generalAppearance}`);
+  }
+  if (obj.cardiovascular && obj.cardiovascular.trim()) {
+    sections.push(`**Cardiovascular**: ${obj.cardiovascular}`);
+  }
+  if (obj.respiratory && obj.respiratory.trim()) {
+    sections.push(`**Respiratory**: ${obj.respiratory}`);
+  }
+  if (obj.abdominal && obj.abdominal.trim()) {
+    sections.push(`**Abdominal**: ${obj.abdominal}`);
+  }
+  if (obj.neurological && obj.neurological.trim()) {
+    sections.push(`**Neurological**: ${obj.neurological}`);
+  }
+  
+  return sections.length > 0 ? sections.join('\n\n') : 'No significant findings';
+};
+
+const parsePhysicalExamFindings = (findings: string) => {
+  if (!findings) return null;
+  
+  try {
+    if (findings.includes('{') || findings.includes('[')) {
+      const parsed = JSON.parse(findings);
+      // Format as readable text
+      const sections = [];
+      if (parsed.generalAppearance && parsed.generalAppearance.trim()) {
+        sections.push(`**General Appearance**: ${parsed.generalAppearance}`);
+      }
+      if (parsed.cardiovascular && parsed.cardiovascular.trim()) {
+        sections.push(`**Cardiovascular**: ${parsed.cardiovascular}`);
+      }
+      if (parsed.respiratory && parsed.respiratory.trim()) {
+        sections.push(`**Respiratory**: ${parsed.respiratory}`);
+      }
+      if (parsed.abdominal && parsed.abdominal.trim()) {
+        sections.push(`**Abdominal**: ${parsed.abdominal}`);
+      }
+      if (parsed.neurological && parsed.neurological.trim()) {
+        sections.push(`**Neurological**: ${parsed.neurological}`);
+      }
+      return sections.length > 0 ? sections.join('\n') : null;
+    }
+    return findings;
+  } catch (error) {
+    return findings;
+  }
+};
+
+  const renderPatientInfo = () => (
+    <div className="space-y-6">
+      {/* Personal Information Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <User className="size-5 text-blue-600" />
+            Personal Information
+          </CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Full Name</p>
+              <p className="text-base font-semibold text-gray-900">{patientData?.Name || 'N/A'}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">IC Number</p>
+              <p className="text-base font-semibold text-gray-900">{patientData?.ICNo || 'N/A'}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Age</p>
+              <p className="text-base font-semibold text-gray-900">{patientAge} years</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Gender</p>
+              <p className="text-base font-semibold text-gray-900">
+                {patientData?.Gender === 'M' ? 'Male' : patientData?.Gender === 'F' ? 'Female' : 'N/A'}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Date of Birth</p>
+              <p className="text-base font-semibold text-gray-900">
+                {formatSimpleDate(patientData?.DOB)}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Blood Type</p>
+              <p className="text-base font-semibold text-gray-900">{patientData?.BloodType || 'N/A'}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Contact Information Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <Phone className="size-5 text-blue-600" />
+            Contact Information
+          </CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Phone Number</p>
+              <p className="text-base font-semibold text-gray-900">{patientData?.PhoneNumber || 'N/A'}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-500">Email Address</p>
+              <p className="text-base font-semibold text-gray-900">{patientData?.Email || 'N/A'}</p>
+            </div>
+            <div className="md:col-span-2 space-y-2">
+              <p className="text-sm font-medium text-gray-500">Address</p>
+              <p className="text-base text-gray-900">
+                {patientData?.Address || 'No address recorded'}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Medical Summary Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <Activity className="size-5 text-blue-600" />
+            Medical Summary
+          </CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Allergies Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <AlertTriangle className="size-4 text-red-500" />
+                  Allergies
+                </h4>
+                <Badge variant="outline">{allergies.length}</Badge>
+              </div>
+              {allergies.length > 0 ? (
+                <div className="space-y-2">
+                  {allergies.slice(0, 3).map((allergy, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-red-50 rounded">
+                      <span className="text-sm font-medium text-gray-900">{allergy.AllergyName}</span>
+                      {allergy.Severity && getSeverityBadge(allergy.Severity)}
+                    </div>
+                  ))}
+                  {allergies.length > 3 && (
+                    <p className="text-sm text-gray-500 text-center">
+                      +{allergies.length - 3} more allergies
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No allergies recorded</p>
+              )}
+            </div>
+
+            {/* Recent Visits Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Calendar className="size-4 text-blue-500" />
+                  Recent Visits
+                </h4>
+                <Badge variant="outline">{visits.length}</Badge>
+              </div>
+              {visits.length > 0 ? (
+                <div className="space-y-2">
+                  {visits.slice(0, 3).map((visit) => (
+                    <div key={visit.VisitID} className="p-2 bg-gray-50 rounded">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-900">
+                          {formatSimpleDate(visit.ArrivalTime)}
+                        </span>
+                        {getStatusBadge(visit.VisitStatus)}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{visit.DoctorName || 'No doctor assigned'}</p>
+                    </div>
+                  ))}
+                  {visits.length > 3 && (
+                    <p className="text-sm text-gray-500 text-center">
+                      +{visits.length - 3} more visits
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No visits recorded</p>
+              )}
+            </div>
+
+            {/* Active Prescriptions Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Pill className="size-4 text-purple-500" />
+                  Prescriptions
+                </h4>
+                <Badge variant="outline">
+                  {prescriptions.length}
+                </Badge>
+              </div>
+              {prescriptions.length > 0 ? (
+                <div className="space-y-2">
+                  {prescriptions.slice(0, 3).map((prescription) => (
+                    <div key={prescription.PrescriptionID} className="p-2 bg-purple-50 rounded">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-900">
+                          {formatSimpleDate(prescription.PrescribedDate)}
+                        </span>
+                        {getStatusBadge(prescription.Status || 'active')}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {prescription.DoctorName || 'No doctor specified'}
+                      </p>
+                    </div>
+                  ))}
+                  {prescriptions.length > 3 && (
+                    <p className="text-sm text-gray-500 text-center">
+                      +{prescriptions.length - 3} more prescriptions
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No prescriptions recorded</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderVisits = () => (
+    <div className="space-y-4">
+      {visits.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Calendar className="size-12 mx-auto text-gray-400 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-700">No Visits Found</h3>
+            <p className="text-gray-500 mt-2">This patient has no recorded visits.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        visits.map((visit) => (
+          <Card key={visit.VisitID} className={`border ${expandedVisit === visit.VisitID ? 'border-blue-300' : 'border-gray-200'}`}>
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <Calendar className="size-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-3 mb-1">
+                      <h4 className="text-base font-semibold text-gray-900">
+                        {formatDate(visit.ArrivalTime)}
+                      </h4>
+                      {getStatusBadge(visit.VisitStatus)}
+                      <Badge variant="outline" className="capitalize">
+                        {visit.VisitType?.replace('-', ' ') || 'Visit'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-gray-600">
+                      {visit.DoctorName && (
+                        <span className="flex items-center gap-1">
+                          <User className="size-4" />
+                          Dr. {visit.DoctorName}
+                        </span>
+                      )}
+                      {visit.QueueNumber && (
+                        <span className="flex items-center gap-1">
+                          <Hash className="size-4" />
+                          Queue: {visit.QueueNumber}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setExpandedVisit(expandedVisit === visit.VisitID ? null : visit.VisitID)}
+                  className="h-8"
+                >
+                  {expandedVisit === visit.VisitID ? 'Hide Details' : 'View Details'}
+                  <ChevronRight className={`ml-1 size-4 transition-transform ${
+                    expandedVisit === visit.VisitID ? 'rotate-90' : ''
+                  }`} />
+                </Button>
+              </div>
+
+              {/* Quick Info - Only show essential information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <div className="bg-gray-50 p-3 rounded">
+                  <p className="text-xs text-gray-500 mb-1">Visit Type</p>
+                  <p className="text-sm font-medium text-gray-900 capitalize">
+                    {visit.VisitType?.replace('-', ' ') || 'Not specified'}
+                  </p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded">
+                  <p className="text-xs text-gray-500 mb-1">Priority</p>
+                  <div className="flex items-center gap-2">
+                    <span className={`size-2 rounded-full ${
+                      visit.TriagePriority === 'critical' ? 'bg-red-500' :
+                      visit.TriagePriority === 'high' ? 'bg-orange-500' :
+                      visit.TriagePriority === 'medium' ? 'bg-yellow-500' : 'bg-green-500'
+                    }`} />
+                    <p className="text-sm font-medium text-gray-900 capitalize">
+                      {visit.TriagePriority || 'Standard'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {expandedVisit === visit.VisitID && (
+                <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+                  {/* Only show purpose if it exists */}
+                  {visit.Purpose && visit.Purpose.trim() && (
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">Purpose of Visit</p>
+                      <p className="text-sm text-gray-900 bg-gray-50 p-3 rounded">{visit.Purpose}</p>
+                    </div>
+                  )}
+                  
+                  {/* Only show notes if they exist */}
+                  {visit.VisitNotes && visit.VisitNotes.trim() && (
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">Additional Notes</p>
+                      <p className="text-sm text-gray-900 bg-blue-50 p-3 rounded">{visit.VisitNotes}</p>
+                    </div>
+                  )}
+                  
+                  {/* Don't show Check-out data if it's not completed */}
+                  {visit.VisitStatus === 'completed' && visit.CheckOutTime && (
+                    <div className="p-3 bg-green-50 rounded border border-green-200">
+                      <p className="text-sm font-medium text-green-800 mb-1">Visit Completed</p>
+                      <p className="text-sm text-green-700">Check-out: {formatDate(visit.CheckOutTime)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+
+  const renderConsultations = () => {
+    const renderConsultationDetail = (title: string, value: any, icon?: React.ReactNode) => {
+      if (!value || value === '' || value === 'null' || value === 'N/A' || value === '0') return null;
+      
+      return (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-gray-400">{icon}</span>}
+            <p className="text-sm font-medium text-gray-700">{title}</p>
+          </div>
+          {typeof value === 'string' && (value.includes('{') || value.includes('[')) ? (
+            <div className="bg-gray-50 p-3 rounded text-sm text-gray-900 whitespace-pre-wrap">
+              {JSON.stringify(JSON.parse(value), null, 2)}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">{value}</p>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-4">
+        {consultations.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Stethoscope className="size-12 mx-auto text-gray-400 mb-4" />
+              <h3 className="text-lg font-semibold text-gray-700">No Consultations Found</h3>
+              <p className="text-gray-500 mt-2">This patient has no recorded consultations.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          consultations.map((consultation) => {
+                        const physicalExamFindings = consultation.PhysicalExamFindings ? 
+              parsePhysicalExamFindings(consultation.PhysicalExamFindings) : 
+              null;
+            
+            return (
+              <Card key={consultation.ConsultationID} className={`border ${expandedConsultation === consultation.ConsultationID ? 'border-green-300' : 'border-gray-200'}`}>
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-green-50 rounded-lg">
+                        <Stethoscope className="size-5 text-green-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <h4 className="text-base font-semibold text-gray-900">
+                            {formatDate(consultation.StartTime || consultation.CreatedAt)}
+                          </h4>
+                          {consultation.SeverityAssessment && getSeverityBadge(consultation.SeverityAssessment)}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                          {consultation.DoctorName && (
+  <span className="flex items-center gap-1">
+    <User className="size-4" />
+    Dr. {consultation.DoctorName}
+  </span>
+)}
+{consultation.VisitType && (
+  <Badge variant="outline" className="capitalize">
+    {(consultation.VisitType as string).replace(/-/g, ' ')}
+  </Badge>
+)}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExpandedConsultation(expandedConsultation === consultation.ConsultationID ? null : consultation.ConsultationID)}
+                      className="h-8"
+                    >
+                      {expandedConsultation === consultation.ConsultationID ? 'Hide Details' : 'View Details'}
+                      <ChevronRight className={`ml-1 size-4 transition-transform ${
+                        expandedConsultation === consultation.ConsultationID ? 'rotate-90' : ''
+                      }`} />
+                    </Button>
+                  </div>
+
+                  {/* Quick Summary Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                    {consultation.Diagnosis && (
+                      <div className="p-3 bg-amber-50 rounded border border-amber-200">
+                        <p className="text-xs text-amber-600 font-medium mb-1">Diagnosis</p>
+                        <p className="font-medium text-gray-900">{consultation.Diagnosis}</p>
+                        {consultation.DiagnosisCode && consultation.DiagnosisCode !== 'N/A' && (
+                          <p className="text-xs text-amber-700 mt-1">Code: {consultation.DiagnosisCode}</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Vital Signs Summary */}
+                    {(consultation.Temperature || consultation.BloodPressureSystolic || consultation.HeartRate) && (
+                      <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                        <p className="text-xs text-blue-600 font-medium mb-2">Vital Signs</p>
+                        <div className="flex items-center gap-4">
+                          {consultation.Temperature && (
+                            <div className="text-center">
+                              <p className="text-xs text-gray-500">Temp</p>
+                              <p className="text-sm font-medium text-gray-900">{consultation.Temperature}°C</p>
+                            </div>
+                          )}
+                          {consultation.BloodPressureSystolic && consultation.BloodPressureDiastolic && (
+                            <div className="text-center">
+                              <p className="text-xs text-gray-500">BP</p>
+                              <p className="text-sm font-medium text-gray-900">
+                                {consultation.BloodPressureSystolic}/{consultation.BloodPressureDiastolic}
+                              </p>
+                            </div>
+                          )}
+                          {consultation.HeartRate && (
+                            <div className="text-center">
+                              <p className="text-xs text-gray-500">HR</p>
+                              <p className="text-sm font-medium text-gray-900">{consultation.HeartRate} bpm</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Follow-up Status */}
+                    {consultation.FollowUpDate && (
+                      <div className="p-3 bg-green-50 rounded border border-green-200">
+                        <p className="text-xs text-green-600 font-medium mb-1">Follow-up</p>
+                        <p className="font-medium text-gray-900">
+                          {formatSimpleDate(consultation.FollowUpDate)}
+                        </p>
+                        {consultation.FollowUpPurpose && (
+                          <p className="text-xs text-green-700 mt-1 truncate">{consultation.FollowUpPurpose}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+{expandedConsultation === consultation.ConsultationID && (
+  <div className="mt-6 pt-6 border-t border-gray-200 space-y-6">
+    {/* Chief Complaint Section */}
+    {consultation.ChiefComplaint && consultation.ChiefComplaint.trim() && (
+      <div className="space-y-2">
+        <h5 className="font-medium text-gray-900 flex items-center gap-2">
+          <AlertCircle className="size-4 text-amber-500" />
+          Chief Complaint
+        </h5>
+        <p className="text-sm text-gray-900 bg-gray-50 p-3 rounded">
+          {consultation.ChiefComplaint}
+        </p>
+      </div>
+    )}
+
+    {/* History of Present Illness */}
+    {consultation.HistoryOfPresentIllness && consultation.HistoryOfPresentIllness.trim() && (
+      <div className="space-y-2">
+        <h5 className="font-medium text-gray-900">History of Present Illness</h5>
+        <p className="text-sm text-gray-900 bg-gray-50 p-3 rounded whitespace-pre-wrap">
+          {consultation.HistoryOfPresentIllness}
+        </p>
+      </div>
+    )}
+
+    {/* Two-column grid for related sections */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Physical Exam Findings - LEFT COLUMN */}
+      {physicalExamFindings && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900 flex items-center gap-2">
+            <Activity className="size-4 text-blue-500" />
+            Physical Examination
+          </h5>
+          <div className="text-sm text-gray-900 bg-gray-50 p-3 rounded">
+            {renderPhysicalExamFindings(physicalExamFindings)}
+          </div>
+        </div>
+      )}
+
+      {/* Vital Signs Details - RIGHT COLUMN */}
+      {(consultation.Temperature || consultation.BloodPressureSystolic || consultation.HeartRate) && (
+        <div className="space-y-3">
+          <h5 className="font-medium text-gray-900 flex items-center gap-2">
+            <Heart className="size-4 text-red-500" />
+            Vital Signs
+          </h5>
+          <div className="grid grid-cols-2 gap-3">
+            {consultation.Temperature && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">Temperature</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.Temperature}°C</p>
+              </div>
+            )}
+            {consultation.BloodPressureSystolic && consultation.BloodPressureDiastolic && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">Blood Pressure</p>
+                <p className="text-base font-semibold text-gray-900">
+                  {consultation.BloodPressureSystolic}/{consultation.BloodPressureDiastolic} mmHg
+                </p>
+              </div>
+            )}
+            {consultation.HeartRate && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">Heart Rate</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.HeartRate} bpm</p>
+              </div>
+            )}
+            {consultation.RespiratoryRate && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">Respiratory Rate</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.RespiratoryRate} /min</p>
+              </div>
+            )}
+            {consultation.OxygenSaturation && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">O₂ Saturation</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.OxygenSaturation}%</p>
+              </div>
+            )}
+            {consultation.Height && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">Height</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.Height} cm</p>
+              </div>
+            )}
+            {consultation.Weight && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">Weight</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.Weight} kg</p>
+              </div>
+            )}
+            {consultation.BMI && (
+              <div className="bg-blue-50 p-3 rounded">
+                <p className="text-xs text-blue-600 font-medium">BMI</p>
+                <p className="text-base font-semibold text-gray-900">{consultation.BMI}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Treatment Section - Full Width */}
+    {consultation.TreatmentPlan && consultation.TreatmentPlan.trim() && (
+      <div className="space-y-2">
+        <h5 className="font-medium text-gray-900 flex items-center gap-2">
+          <ClipboardCheck className="size-4 text-green-500" />
+          Treatment Plan
+        </h5>
+        <div className="text-sm text-gray-900 bg-green-50 p-3 rounded border border-green-200 whitespace-pre-wrap">
+          {consultation.TreatmentPlan}
+        </div>
+      </div>
+    )}
+
+    {/* Two-column for Plans */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Medication Plan */}
+      {consultation.MedicationPlan && consultation.MedicationPlan.trim() && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900 flex items-center gap-2">
+            <Pill className="size-4 text-purple-500" />
+            Medication Plan
+          </h5>
+          <div className="text-sm text-gray-900 bg-purple-50 p-3 rounded border border-purple-200 whitespace-pre-wrap">
+            {consultation.MedicationPlan}
+          </div>
+        </div>
+      )}
+
+      {/* Non-Medication Plan */}
+      {consultation.NonMedicationPlan && consultation.NonMedicationPlan.trim() && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900 flex items-center gap-2">
+            <Dumbbell className="size-4 text-green-500" />
+            Non-Medication Plan
+          </h5>
+          <div className="text-sm text-gray-900 bg-gray-50 p-3 rounded whitespace-pre-wrap">
+            {consultation.NonMedicationPlan}
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Patient Education & Lifestyle Advice - Two Columns */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Patient Education */}
+      {consultation.PatientEducation && consultation.PatientEducation.trim() && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900 flex items-center gap-2">
+            <BookOpen className="size-4 text-blue-500" />
+            Patient Education
+          </h5>
+          <div className="text-sm text-gray-900 bg-blue-50 p-3 rounded border border-blue-200 whitespace-pre-wrap">
+            {consultation.PatientEducation}
+          </div>
+        </div>
+      )}
+
+      {/* Lifestyle Advice */}
+      {consultation.LifestyleAdvice && consultation.LifestyleAdvice.trim() && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900 flex items-center gap-2">
+            <Dumbbell className="size-4 text-green-500" />
+            Lifestyle Advice
+          </h5>
+          <div className="text-sm text-gray-900 bg-green-50 p-3 rounded whitespace-pre-wrap">
+            {consultation.LifestyleAdvice}
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Warning Signs */}
+    {consultation.WarningSigns && consultation.WarningSigns.trim() && (
+      <div className="space-y-2">
+        <h5 className="font-medium text-gray-900 flex items-center gap-2 text-red-600">
+          <AlertTriangle className="size-4" />
+          Warning Signs
+        </h5>
+        <div className="text-sm text-gray-900 bg-red-50 p-3 rounded border border-red-200">
+          {consultation.WarningSigns}
+        </div>
+      </div>
+    )}
+
+    {/* Two-column for History */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Past Medical History */}
+      {consultation.PastMedicalHistory && consultation.PastMedicalHistory.trim() && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900">Past Medical History</h5>
+          <div className="text-sm text-gray-900 bg-gray-50 p-3 rounded whitespace-pre-wrap">
+            {consultation.PastMedicalHistory}
+          </div>
+        </div>
+      )}
+
+      {/* Family History */}
+      {consultation.FamilyHistory && consultation.FamilyHistory.trim() && (
+        <div className="space-y-2">
+          <h5 className="font-medium text-gray-900">Family History</h5>
+          <div className="text-sm text-gray-900 bg-gray-50 p-3 rounded whitespace-pre-wrap">
+            {consultation.FamilyHistory}
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* Differential Diagnosis */}
+    {consultation.DifferentialDiagnosis && consultation.DifferentialDiagnosis.trim() && (
+      <div className="space-y-2">
+        <h5 className="font-medium text-gray-900">Differential Diagnosis</h5>
+        <div className="text-sm text-gray-900 bg-gray-50 p-3 rounded whitespace-pre-wrap">
+          {consultation.DifferentialDiagnosis}
+        </div>
+      </div>
+    )}
+
+    {/* Consultation Notes */}
+    {consultation.ConsultationNotes && consultation.ConsultationNotes.trim() && (
+      <div className="space-y-2">
+        <h5 className="font-medium text-gray-900">Doctor's Notes</h5>
+        <div className="text-sm text-gray-900 bg-gray-50 p-3 rounded whitespace-pre-wrap">
+          {consultation.ConsultationNotes}
+        </div>
+      </div>
+    )}
+  </div>
+)}
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
+  const renderPrescriptions = () => (
+    <div className="space-y-4">
+      {prescriptions.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Pill className="size-12 mx-auto text-gray-400 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-700">No Prescriptions Found</h3>
+            <p className="text-gray-500 mt-2">This patient has no recorded prescriptions.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        prescriptions.map((prescription) => (
+          <Card key={prescription.PrescriptionID} className="border border-gray-200">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-purple-50 rounded-lg">
+                    <Pill className="size-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-semibold text-gray-900">
+                      Prescribed on {formatDate(prescription.PrescribedDate)}
+                    </h4>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-sm text-gray-600">
+                        by Dr. {prescription.DoctorName || 'Unknown Doctor'}
+                      </span>
+                      {getStatusBadge(prescription.Status || 'active')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {prescription.Remarks && prescription.Remarks.trim() && (
+                <div className="mb-4 p-3 bg-blue-50 rounded border border-blue-200">
+                  <p className="text-sm font-medium text-blue-800 mb-1">Doctor's Remarks</p>
+                  <p className="text-sm text-blue-700">{prescription.Remarks}</p>
+                </div>
+              )}
+
+              {prescription.Diagnosis && (
+                <div className="mb-4 p-3 bg-amber-50 rounded border border-amber-200">
+                  <p className="text-sm font-medium text-amber-800 mb-1">Associated Diagnosis</p>
+                  <p className="text-sm text-amber-700">{prescription.Diagnosis}</p>
+                </div>
+              )}
+
+              {/* Prescription Items */}
+              {prescription.items && prescription.items.length > 0 ? (
+                <div>
+                  <h5 className="font-medium text-gray-900 mb-3">Medications ({prescription.items.length})</h5>
+                  <div className="space-y-3">
+                    {prescription.items.map((item, index) => (
+                      <div key={index} className="p-3 bg-gray-50 rounded border border-gray-200">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-start gap-3">
+                            <div className="p-2 bg-white rounded border">
+                              <PillIcon className="size-4 text-gray-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">{item.DrugName}</p>
+                              <p className="text-xs text-gray-500">{item.Category}</p>
+                            </div>
+                          </div>
+                          {getStatusBadge(item.Status)}
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div>
+                            <p className="text-xs text-gray-500">Dosage</p>
+                            <p className="text-sm font-medium text-gray-900">{item.Dosage || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">Frequency</p>
+                            <p className="text-sm font-medium text-gray-900">{item.Frequency || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">Duration</p>
+                            <p className="text-sm font-medium text-gray-900">{item.Duration || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500">Quantity</p>
+                            <p className="text-sm font-medium text-gray-900">{item.Quantity}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-gray-50 rounded border border-dashed border-gray-300">
+                  <Package className="size-8 mx-auto text-gray-400 mb-2" />
+                  <p className="text-gray-500">No medications in this prescription</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+
+  const renderAllergies = () => (
+    <div className="space-y-4">
+      {allergies.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Shield className="size-12 mx-auto text-gray-400 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-700">No Allergies Found</h3>
+            <p className="text-gray-500 mt-2">This patient has no recorded allergies.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        allergies.map((allergy, index) => (
+          <Card key={allergy.AllergyFindingID || index} className="border border-gray-200">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start gap-4">
+                  <div className={`p-3 rounded-lg ${
+                    allergy.Severity === 'severe' || allergy.Severity === 'life-threatening' 
+                      ? 'bg-red-50' 
+                      : 'bg-amber-50'
+                  }`}>
+                    <AlertTriangle className={`size-5 ${
+                      allergy.Severity === 'severe' || allergy.Severity === 'life-threatening' 
+                        ? 'text-red-600' 
+                        : 'text-amber-600'
+                    }`} />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-semibold text-gray-900">{allergy.AllergyName}</h4>
+                    <div className="flex items-center gap-3 mt-1">
+                      {allergy.Severity && getSeverityBadge(allergy.Severity)}
+                      {allergy.OnsetDate && (
+                        <span className="text-sm text-gray-600">
+                          Onset: {formatSimpleDate(allergy.OnsetDate)}
+                        </span>
+                      )}
+                      {getStatusBadge(allergy.Status || 'active')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-1">Reaction</p>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
+                    {allergy.Reaction || 'Not specified'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-1">Status</p>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded capitalize">
+                    {allergy.Status || 'Active'}
+                  </p>
+                </div>
+              </div>
+
+              {allergy.Notes && allergy.Notes.trim() && (
+                <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                  <p className="text-sm font-medium text-blue-800 mb-1">Additional Notes</p>
+                  <p className="text-sm text-blue-700">{allergy.Notes}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/50" 
+        onClick={() => onOpenChange(false)}
+      />
+      
+      {/* Modal container */}
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <div className="relative z-50 w-full h-full max-w-[1600px] max-h-[90vh] bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden">
+          {/* Dialog Header */}
+          <div className="shrink-0 bg-gradient-to-r from-blue-50 to-gray-50 border-b px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white rounded-lg border">
+                  <FileText className="size-6 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Patient Medical History</h2>
+                  <p className="text-sm text-gray-600">Comprehensive medical records</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-900">
+                    {patientAge} years • {patientData?.Gender === 'M' ? 'Male' : 'Female'}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    DOB: {formatSimpleDate(patientData?.DOB)}
+                  </p>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => onOpenChange(false)}
+                  className="h-9 w-9 rounded-lg hover:bg-gray-200"
+                >
+                  <X className="size-5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs Section */}
+          <div className="shrink-0 px-6 pt-4 pb-2 bg-white border-b">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+  <TabsList className="inline-flex h-10 items-center justify-center rounded-lg bg-gray-100 p-1">
+    <TabsTrigger 
+      value="patient" 
+      className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:font-semibold"
+    >
+      <User className="size-4 mr-2" />
+      Patient Info
+    </TabsTrigger>
+                <TabsTrigger 
+                  value="visits" 
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-foreground data-[state=active]:shadow"
+                >
+                  <Calendar className="size-4 mr-2" />
+                  Visits
+                  {visits.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-xs">
+                      {visits.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="consultations" 
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-foreground data-[state=active]:shadow"
+                >
+                  <Stethoscope className="size-4 mr-2" />
+                  Consultations
+                  {consultations.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-xs">
+                      {consultations.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="prescriptions" 
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-foreground data-[state=active]:shadow"
+                >
+                  <Pill className="size-4 mr-2" />
+                  Prescriptions
+                  {prescriptions.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 px-1.5 py-0 text-xs">
+                      {prescriptions.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="allergies" 
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-white data-[state=active]:text-foreground data-[state=active]:shadow"
+                >
+                  <AlertTriangle className="size-4 mr-2" />
+                  Allergies
+                  {allergies.length > 0 && (
+                    <Badge variant="destructive" className="ml-2 px-1.5 py-0 text-xs">
+                      {allergies.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {/* SCROLLABLE CONTENT AREA */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {loading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4"></div>
+                  <p className="text-gray-600">Loading patient history...</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {activeTab === 'patient' && renderPatientInfo()}
+                {activeTab === 'visits' && renderVisits()}
+                {activeTab === 'consultations' && renderConsultations()}
+                {activeTab === 'prescriptions' && renderPrescriptions()}
+                {activeTab === 'allergies' && renderAllergies()}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

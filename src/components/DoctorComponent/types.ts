@@ -64,7 +64,10 @@ export type PatientVisit = {
   DoctorName?: string;
 };
 
-export type ConsultationFormData = {
+// types.ts - Update the ConsultationFormData type:
+
+// In your types.ts file, update the ConsultationFormData interface:
+export interface ConsultationFormData {
   chiefComplaint: string;
   duration: string;
   severity: string;
@@ -106,7 +109,15 @@ export type ConsultationFormData = {
   disposition: string;
   referralNeeded: boolean;
   referralNotes: string;
-};
+  needsFollowUp: boolean;
+  followUpTime: string;
+  followUpPurpose: string;
+  labTestsOrdered: boolean;
+  referralGiven: boolean;
+  
+  // ADD THIS INDEX SIGNATURE:
+  [key: string]: any;
+}
 
 // In your types.ts file, add to ConsultationTabProps interface
 export interface ConsultationTabProps {

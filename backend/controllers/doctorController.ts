@@ -128,7 +128,7 @@ export const getEnhancedPatientQueue = async (req: Request, res: Response) => {
       LEFT JOIN appointment a ON pv.AppointmentID = a.AppointmentID
       WHERE pv.DoctorID = ? 
         AND DATE(pv.ArrivalTime) = CURDATE()
-        AND pv.VisitStatus NOT IN ('completed', 'cancelled', 'no-show')
+        AND pv.VisitStatus IN ('scheduled', 'checked-in', 'in-consultation')
         AND pv.QueueStatus NOT IN ('completed', 'cancelled')
       ORDER BY 
         CASE pv.TriagePriority
@@ -166,7 +166,7 @@ export const getEnhancedPatientQueue = async (req: Request, res: Response) => {
       LEFT JOIN appointment a ON pv.AppointmentID = a.AppointmentID
       WHERE (pv.DoctorID IS NULL OR pv.DoctorID != ?)
         AND DATE(pv.ArrivalTime) = CURDATE()
-        AND pv.VisitStatus NOT IN ('completed', 'cancelled', 'no-show')
+        AND pv.VisitStatus IN ('scheduled', 'checked-in', 'in-consultation')
         AND pv.QueueStatus NOT IN ('completed', 'cancelled')
       ORDER BY 
         CASE pv.TriagePriority
@@ -772,6 +772,10 @@ export const saveConsultation = async (req: Request, res: Response) => {
 export const visitPatient = async (req: Request, res: Response) => {
   const { visitId, doctorId } = req.body;
   
+  console.log('=== VISIT PATIENT ENDPOINT HIT ===');
+  console.log('Visit ID:', visitId);
+  console.log('Doctor ID:', doctorId);
+  
   try {
     await db.query('START TRANSACTION');
     
@@ -836,7 +840,6 @@ export const visitPatient = async (req: Request, res: Response) => {
       });
     }
     
-    
     // Update patient_visit to mark as in-consultation and assign to this doctor
     const [updateResult]: any = await db.query(`
       UPDATE patient_visit 
@@ -857,6 +860,19 @@ export const visitPatient = async (req: Request, res: Response) => {
         error: "Patient not found or not in waiting status" 
       });
     }
+    
+    // ============================================
+    // NEW: Create consultation record
+    // ============================================
+    console.log('Creating consultation record...');
+    const [consultation]: any = await db.query(`
+      INSERT INTO consultation 
+      (VisitID, DoctorID, StartTime, CreatedAt, UpdatedAt)
+      VALUES (?, ?, NOW(), NOW(), NOW())
+    `, [visitId, doctorId]);
+    
+    const consultationId = consultation.insertId;
+    console.log('Created consultation with ID:', consultationId);
     
     // If this is from an appointment, update appointment status
     const [visitData]: any = await db.query(`
@@ -896,11 +912,16 @@ export const visitPatient = async (req: Request, res: Response) => {
       WHERE pv.VisitID = ?
     `, [visitId]);
     
-    res.json({
+    const responseData = {
       success: true,
       message: "Patient called successfully",
-      patient: updatedPatient[0]
-    });
+      patient: updatedPatient[0],
+      consultationId: consultationId  // NEW: Return the consultation ID
+    };
+    
+    console.log('Response data:', responseData);
+    
+    res.json(responseData);
     
   } catch (error) {
     await db.query('ROLLBACK');
@@ -1175,24 +1196,28 @@ export const createPrescription = async (req: Request, res: Response) => {
   }
 };
 
+// In doctorController.ts, update getRecentPrescriptions:
 export const getRecentPrescriptions = async (req: Request, res: Response) => {
-  const { doctorId } = req.params;
+  const doctorId = (req as any).user?.userId || req.params.doctorId;
   
   try {
     const [prescriptions]: any = await db.query(`
       SELECT 
         p.PrescriptionID, 
-        pat.Name as patient, 
+        pat.Name as patientName, 
         d.DrugName as medication, 
         pi.Dosage, 
-        pi.Frequency as dosage,
+        pi.Frequency,
+        pi.Duration,
         p.PrescribedDate as date,
-        ps.Status as prescriptionStatus
+        pi.Status as prescriptionStatus,
+        pi.Quantity,
+        d.UnitPrice,
+        (pi.Quantity * d.UnitPrice) as totalPrice
       FROM prescription p
       JOIN patient pat ON p.PatientID = pat.PatientID
       JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
       JOIN drug d ON pi.DrugID = d.DrugID
-      JOIN prescriptionstatus ps ON p.PrescriptionID = ps.PrescriptionID
       WHERE p.DoctorID = ?
       ORDER BY p.PrescribedDate DESC
       LIMIT 10
@@ -2376,15 +2401,87 @@ export const saveComprehensiveConsultation = async (req: Request, res: Response)
   }
 };
 
+// Add this new API endpoint
+export const createFollowUp = async (req: Request, res: Response) => {
+  try {
+    const {
+      patientId,
+      doctorId,
+      consultationId,
+      followUpDate,
+      purpose,
+      notes
+    } = req.body;
+
+    if (!patientId || !doctorId || !followUpDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Patient ID, Doctor ID, and Follow-up Date are required'
+      });
+    }
+
+    // Generate queue number
+    const queuePrefix = `Q-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}`;
+    const [lastAppointment]: any = await db.query(`
+      SELECT QueueNumber FROM appointment 
+      WHERE QueueNumber LIKE '${queuePrefix}%'
+      ORDER BY AppointmentID DESC LIMIT 1
+    `);
+
+    let queueNumber = `${queuePrefix}-001`;
+    if (lastAppointment.length > 0) {
+      const lastNumber = parseInt(lastAppointment[0].QueueNumber.split('-').pop());
+      queueNumber = `${queuePrefix}-${String(lastNumber + 1).padStart(3, '0')}`;
+    }
+
+    // Create appointment
+    const [appointment]: any = await db.query(`
+      INSERT INTO appointment 
+      (AppointmentDateTime, Purpose, Status, PatientID, DoctorID, 
+       CreatedBy, QueueNumber, Notes, start_time, end_time, UpdatedAt)
+      VALUES (?, ?, 'scheduled', ?, ?, ?, ?, ?, '09:00:00', '09:30:00', NOW())
+    `, [
+      `${followUpDate} 09:00:00`,
+      purpose || 'Follow-up consultation',
+      parseInt(patientId),
+      parseInt(doctorId),
+      parseInt(doctorId), // CreatedBy same as doctor
+      queueNumber,
+      notes || ''
+    ]);
+
+    // Update consultation with follow-up info
+    if (consultationId) {
+      await db.query(`
+        UPDATE consultation 
+        SET FollowUpDate = ?, UpdatedAt = NOW()
+        WHERE ConsultationID = ?
+      `, [followUpDate, consultationId]);
+    }
+
+    res.json({
+      success: true,
+      message: "Follow-up appointment created successfully",
+      appointmentId: appointment.insertId,
+      queueNumber: queueNumber
+    });
+
+  } catch (error: any) {
+    console.error('Create follow-up error:', error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to create follow-up appointment",
+      message: error.message
+    });
+  }
+};
+
 // In your doctor controller file - ADD THIS NEW FUNCTION
 export const saveConsultationForm = async (req: Request, res: Response) => {
-  console.log('=== SAVE CONSULTATION FORM START ===');
+  console.log('=== SAVE CONSULTATION FORM ENDPOINT HIT ===');
+  console.log('Request method:', req.method);
+  console.log('Request URL:', req.originalUrl);
   console.log('Request body:', JSON.stringify(req.body, null, 2));
-  
-  // Define variables in outer scope
-  let visitId: number;
-  let consultationId: number;
-  let existingConsultation: any[] = [];
   
   try {
     const {
@@ -2398,24 +2495,29 @@ export const saveConsultationForm = async (req: Request, res: Response) => {
       consultationNotes,
       followUpInstructions,
       followUpDate,
-      pastMedicalHistory,
-      socialHistory,
-      reviewOfSystems,
       physicalExamFindings,
+      labTestsOrdered = false,
+      referralGiven = false,
+      // Additional fields
+      severityAssessment,
+      differentialDiagnosis,
       medicationPlan,
       nonMedicationPlan,
       patientEducation,
       lifestyleAdvice,
       warningSigns,
       disposition,
-      referralNeeded,
       referralNotes,
-      severity,
-      duration,
-      severityAssessment,
-      differentialDiagnosis,
-      familyHistory
+      pastMedicalHistory,
+      familyHistory,
+      needsFollowUp,
+      followUpTime,
+      followUpPurpose,
+      referralNeeded
     } = req.body;
+    
+    console.log('Parsed patientId:', patientId);
+    console.log('Parsed doctorId:', doctorId);
     
     // Validate required fields
     if (!patientId || !doctorId) {
@@ -2426,7 +2528,6 @@ export const saveConsultationForm = async (req: Request, res: Response) => {
       });
     }
 
-    // Convert to numbers for safety
     const patientIdNum = parseInt(patientId);
     const doctorIdNum = parseInt(doctorId);
     
@@ -2434,220 +2535,311 @@ export const saveConsultationForm = async (req: Request, res: Response) => {
     await db.query('START TRANSACTION');
 
     // ======================
-    // 1. FIND OR CREATE VISIT
+    // 1. FIND OR CREATE CONSULTATION
     // ======================
-    console.log('1. Finding or creating visit for patient:', patientIdNum);
+    console.log('1. Finding or creating consultation...');
     
-    try {
+    let consultationId;
+    let visitId;
+    
+    // First, try to find existing active consultation for today
+    const [consultationCheck]: any = await db.query(`
+      SELECT c.ConsultationID, c.VisitID, pv.VisitID, pv.VisitStatus
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE pv.PatientID = ?
+        AND c.DoctorID = ?
+        AND DATE(c.CreatedAt) = CURDATE()
+        AND (pv.VisitStatus = 'in-consultation' OR pv.VisitStatus = 'checked-in')
+      ORDER BY c.CreatedAt DESC
+      LIMIT 1
+    `, [patientIdNum, doctorIdNum]);
+    
+    console.log('Consultation check result:', consultationCheck);
+    
+    if (consultationCheck.length > 0) {
+      // Use existing consultation
+      consultationId = consultationCheck[0].ConsultationID;
+      visitId = consultationCheck[0].VisitID;
+      console.log('Found existing consultation ID:', consultationId, 'Visit ID:', visitId);
+    } else {
+      console.log('No existing consultation found, looking for active visit...');
+      
+      // Find active visit for this patient/doctor
       const [activeVisit]: any = await db.query(`
         SELECT VisitID FROM patient_visit 
-        WHERE PatientID = ? 
+        WHERE PatientID = ?
+          AND DoctorID = ?
+          AND (VisitStatus = 'in-consultation' OR VisitStatus = 'checked-in')
           AND DATE(ArrivalTime) = CURDATE()
-          AND VisitStatus NOT IN ('completed', 'cancelled')
         ORDER BY ArrivalTime DESC
         LIMIT 1
-      `, [patientIdNum]);
-
-      console.log('Active visit query result:', activeVisit);
-
+      `, [patientIdNum, doctorIdNum]);
+      
       if (activeVisit.length === 0) {
-        console.log('No active visit found. Creating new visit...');
-        const [visit]: any = await db.query(`
-          INSERT INTO patient_visit 
-          (PatientID, DoctorID, VisitType, ArrivalTime, CheckInTime, VisitStatus, QueueStatus, VisitNotes)
-          VALUES (?, ?, 'consultation', NOW(), NOW(), 'in-consultation', 'in-progress', ?)
-        `, [patientIdNum, doctorIdNum, chiefComplaint || 'Consultation']);
-        
-        visitId = visit.insertId;
-        console.log('New visit created with ID:', visitId);
-      } else {
-        visitId = activeVisit[0].VisitID;
-        console.log('Using existing visit ID:', visitId);
-        
-        // Update visit status
-        console.log('Updating visit status...');
-        await db.query(`
-          UPDATE patient_visit 
-          SET 
-            VisitStatus = 'in-consultation',
-            QueueStatus = 'in-progress',
-            DoctorID = ?,
-            UpdatedAt = NOW()
-          WHERE VisitID = ?
-        `, [doctorIdNum, visitId]);
+        console.error('No active visit found for patient/doctor');
+        await db.query('ROLLBACK');
+        return res.status(404).json({ 
+          success: false,
+          error: "No active consultation found. Please call the patient first." 
+        });
       }
-    } catch (visitError: any) {
-      console.error('Error in visit handling:', visitError);
-      throw new Error(`Visit handling failed: ${visitError.message}`);
+      
+      visitId = activeVisit[0].VisitID;
+      console.log('Found active visit ID:', visitId);
+      
+      // Create consultation
+      const [newConsultation]: any = await db.query(`
+        INSERT INTO consultation 
+        (VisitID, DoctorID, StartTime, CreatedAt, UpdatedAt)
+        VALUES (?, ?, NOW(), NOW(), NOW())
+      `, [visitId, doctorIdNum]);
+      
+      consultationId = newConsultation.insertId;
+      console.log('Created new consultation ID:', consultationId);
     }
-
-    // ======================
-    // 2. PARSE JSON DATA
-    // ======================
-    console.log('2. Parsing JSON data...');
     
+    // ======================
+    // 2. PARSE PHYSICAL EXAM FINDINGS
+    // ======================
     let parsedPhysicalExamFindings = {};
     try {
       if (physicalExamFindings) {
+        console.log('Physical exam findings raw:', physicalExamFindings);
         if (typeof physicalExamFindings === 'string') {
           parsedPhysicalExamFindings = JSON.parse(physicalExamFindings);
-          console.log('Parsed physical exam findings:', parsedPhysicalExamFindings);
         } else if (typeof physicalExamFindings === 'object') {
           parsedPhysicalExamFindings = physicalExamFindings;
         }
+        console.log('Parsed physical exam findings:', parsedPhysicalExamFindings);
+      } else {
+        console.log('No physical exam findings provided');
       }
     } catch (parseError) {
-      console.warn('Warning: Could not parse physicalExamFindings, using empty object');
-      parsedPhysicalExamFindings = {};
+      console.warn('Could not parse physicalExamFindings:', parseError);
+      parsedPhysicalExamFindings = {
+        generalAppearance: "",
+        cardiovascular: "",
+        respiratory: "",
+        abdominal: "",
+        neurological: ""
+      };
     }
 
     // ======================
-    // 3. CREATE/UPDATE CONSULTATION
+    // 3. UPDATE CONSULTATION
     // ======================
-    console.log('3. Creating/updating consultation...');
+    console.log('3. Updating consultation...');
     
-    try {
-      // Check if consultation already exists for this visit
-      const [consultationCheck]: any = await db.query(`
-        SELECT ConsultationID FROM consultation WHERE VisitID = ?
-      `, [visitId]);
+    const updateQuery = `
+      UPDATE consultation 
+      SET 
+        ChiefComplaint = COALESCE(?, ChiefComplaint),
+        HistoryOfPresentIllness = COALESCE(?, HistoryOfPresentIllness),
+        PhysicalExamFindings = COALESCE(?, PhysicalExamFindings),
+        Diagnosis = COALESCE(?, Diagnosis),
+        DiagnosisCode = COALESCE(?, DiagnosisCode),
+        TreatmentPlan = COALESCE(?, TreatmentPlan),
+        LabTestsOrdered = COALESCE(?, LabTestsOrdered),
+        ReferralGiven = COALESCE(?, ReferralGiven),
+        FollowUpDate = COALESCE(?, FollowUpDate),
+        FollowUpInstructions = COALESCE(?, FollowUpInstructions),
+        ConsultationNotes = COALESCE(?, ConsultationNotes),
+        SeverityAssessment = COALESCE(?, SeverityAssessment),
+        MedicationPlan = COALESCE(?, MedicationPlan),
+        NonMedicationPlan = COALESCE(?, NonMedicationPlan),
+        PatientEducation = COALESCE(?, PatientEducation),
+        LifestyleAdvice = COALESCE(?, LifestyleAdvice),
+        WarningSigns = COALESCE(?, WarningSigns),
+        Disposition = COALESCE(?, Disposition),
+        ReferralNotes = COALESCE(?, ReferralNotes),
+        PastMedicalHistory = COALESCE(?, PastMedicalHistory),
+        FamilyHistory = COALESCE(?, FamilyHistory),
+        DifferentialDiagnosis = COALESCE(?, DifferentialDiagnosis),
+        NeedsFollowUp = COALESCE(?, NeedsFollowUp),
+        FollowUpTime = COALESCE(?, FollowUpTime),
+        FollowUpPurpose = COALESCE(?, FollowUpPurpose),
+        UpdatedAt = NOW()
+      WHERE ConsultationID = ?
+    `;
+    
+    const updateParams = [
+      chiefComplaint || null,
+      historyOfPresentIllness || null,
+      JSON.stringify(parsedPhysicalExamFindings) || null,
+      diagnosis || null,
+      diagnosisCode || null,
+      treatmentPlan || null,
+      labTestsOrdered ? 1 : 0,
+      referralGiven ? 1 : 0,
+      followUpDate || null,
+      followUpInstructions || null,
+      consultationNotes || null,
+      severityAssessment || null,
+      medicationPlan || null,
+      nonMedicationPlan || null,
+      patientEducation || null,
+      lifestyleAdvice || null,
+      warningSigns || null,
+      disposition || null,
+      referralNotes || null,
+      pastMedicalHistory || null,
+      familyHistory || null,
+      differentialDiagnosis || null,
+      needsFollowUp ? 1 : 0,
+      followUpTime || null,
+      followUpPurpose || null,
+      consultationId
+    ];
+    
+    console.log('Update query:', updateQuery);
+    console.log('Update params:', updateParams);
+    
+    const [updateResult]: any = await db.query(updateQuery, updateParams);
+    
+    console.log('Update result:', updateResult);
+    console.log('Rows affected:', updateResult.affectedRows);
 
-      console.log('Existing consultation check:', consultationCheck);
+    // ======================
+    // 4. CREATE/UPDATE MEDICAL HISTORY ENTRY FOR DIAGNOSIS
+    // ======================
+    if (diagnosis && diagnosis.trim()) {
+      console.log('4. Creating/updating medical history for diagnosis:', diagnosis);
+      const currentDate = new Date().toISOString().split('T')[0];
       
-      // Store in outer variable
-      existingConsultation = consultationCheck;
+      // Check if this diagnosis is already in medical history for this consultation
+      const [existingHistory]: any = await db.query(`
+        SELECT HistoryID FROM medical_history 
+        WHERE PatientID = ? 
+          AND ConsultationID = ?
+          AND RecordName = ? 
+          AND Status = 'active'
+      `, [patientIdNum, consultationId, diagnosis]);
 
-      if (existingConsultation.length === 0) {
-        console.log('Creating new consultation...');
-        const [consultation]: any = await db.query(`
-          INSERT INTO consultation 
-          (VisitID, DoctorID, StartTime, ChiefComplaint, HistoryOfPresentIllness, 
-           PhysicalExamFindings, Diagnosis, DiagnosisCode, TreatmentPlan, 
-           ConsultationNotes, FollowUpInstructions, FollowUpDate)
-          VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          visitId, 
-          doctorIdNum, 
-          chiefComplaint || '', 
-          historyOfPresentIllness || '',
-          JSON.stringify(parsedPhysicalExamFindings),
-          diagnosis || '', 
-          diagnosisCode || '', 
-          treatmentPlan || '',
-          consultationNotes || '', 
-          followUpInstructions || '', 
-          followUpDate || null
-        ]);
-        
-        consultationId = consultation.insertId;
-        console.log('New consultation created with ID:', consultationId);
-      } else {
-        consultationId = existingConsultation[0].ConsultationID;
-        console.log('Updating existing consultation ID:', consultationId);
-        
+      console.log('Existing medical history found:', existingHistory.length);
+      
+      if (existingHistory.length === 0) {
+        // Create new medical history entry
+        console.log('Creating new medical history entry');
         await db.query(`
-          UPDATE consultation 
-          SET 
-            ChiefComplaint = ?,
-            HistoryOfPresentIllness = ?,
-            PhysicalExamFindings = ?,
-            Diagnosis = ?,
-            DiagnosisCode = ?,
-            TreatmentPlan = ?,
-            ConsultationNotes = ?,
-            FollowUpInstructions = ?,
-            FollowUpDate = ?,
-            UpdatedAt = NOW()
-          WHERE ConsultationID = ?
+          INSERT INTO medical_history 
+          (PatientID, ConsultationID, VisitID, RecordType, RecordName, 
+           Description, Status, StartDate, Severity, Notes, CreatedBy, CreatedAt)
+          VALUES (?, ?, ?, 'condition', ?, ?, 'active', ?, ?, ?, ?, NOW())
         `, [
-          chiefComplaint || '', 
-          historyOfPresentIllness || '',
-          JSON.stringify(parsedPhysicalExamFindings),
-          diagnosis || '', 
-          diagnosisCode || '', 
-          treatmentPlan || '', 
-          consultationNotes || '',
-          followUpInstructions || '', 
-          followUpDate || null, 
-          consultationId
+          patientIdNum,
+          consultationId,
+          visitId,
+          diagnosis,
+          `Primary diagnosis: ${diagnosis}\nCode: ${diagnosisCode || 'N/A'}`,
+          currentDate,
+          severityAssessment || 'moderate',
+          consultationNotes || null,
+          doctorIdNum
         ]);
-        console.log('Consultation updated successfully');
-      }
-    } catch (consultationError: any) {
-      console.error('Error in consultation handling:', consultationError);
-      throw new Error(`Consultation handling failed: ${consultationError.message}`);
-    }
-
-    // ======================
-    // 4. CREATE MEDICAL HISTORY (OPTIONAL)
-    // ======================
-    console.log('4. Creating medical history entries...');
-    
-    try {
-      if (diagnosis?.trim()) {
-        const currentDate = new Date().toISOString().split('T')[0];
-        
-        // Check if entry already exists
-        const [existing]: any = await db.query(`
-          SELECT HistoryID FROM medical_history 
-          WHERE PatientID = ? AND ConsultationID = ? AND RecordName = ?
-        `, [patientIdNum, consultationId, diagnosis]);
-
-        if (existing.length === 0) {
-          console.log('Creating new medical history entry for diagnosis:', diagnosis);
-          
-          await db.query(`
-            INSERT INTO medical_history 
-            (PatientID, ConsultationID, VisitID, RecordType, RecordName, 
-             Description, Status, StartDate, Severity, Notes, CreatedBy, CreatedAt, UpdatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-          `, [
-            patientIdNum,
-            consultationId,
-            visitId || null,
-            'condition',
-            diagnosis,
-            `Primary diagnosis: ${diagnosis}\nCode: ${diagnosisCode || 'N/A'}`,
-            'active',
-            currentDate,
-            severityAssessment || severity || 'moderate',
-            consultationNotes || null,
-            doctorIdNum
-          ]);
-          
-          console.log('Medical history entry created successfully');
-        } else {
-          console.log('Medical history entry already exists');
-        }
+        console.log('Medical history entry created');
       } else {
-        console.log('No diagnosis provided, skipping medical history');
+        // Update existing medical history entry
+        console.log('Updating existing medical history entry');
+        await db.query(`
+          UPDATE medical_history 
+          SET 
+            Description = ?,
+            Severity = COALESCE(?, Severity),
+            Notes = COALESCE(?, Notes),
+            UpdatedAt = NOW()
+          WHERE HistoryID = ?
+        `, [
+          `Primary diagnosis: ${diagnosis}\nCode: ${diagnosisCode || 'N/A'}`,
+          severityAssessment || null,
+          consultationNotes || null,
+          existingHistory[0].HistoryID
+        ]);
+        console.log('Medical history entry updated');
       }
-    } catch (historyError: any) {
-      console.warn('Warning: Failed to create medical history entry:', historyError);
-      // Don't fail the transaction for medical history errors
+    } else {
+      console.log('No diagnosis provided, skipping medical history');
     }
 
     // ======================
-    // 5. COMMIT TRANSACTION
+    // 5. CREATE REFERRAL IF NEEDED
     // ======================
-    console.log('5. Committing transaction...');
-    await db.query('COMMIT');
+    if (referralGiven && referralNotes) {
+      console.log('5. Creating/updating referral');
+      // Check if referral already exists for this consultation
+      const [existingReferral]: any = await db.query(`
+        SELECT ReferralID FROM referral 
+        WHERE ConsultationID = ?
+      `, [consultationId]);
+      
+      if (existingReferral.length === 0) {
+        // Create new referral
+        console.log('Creating new referral');
+        await db.query(`
+          INSERT INTO referral 
+          (DoctorID, PatientID, ConsultationID, Reason, Urgency, 
+           ReferralDate, Status, Specialty)
+          VALUES (?, ?, ?, ?, 'routine', NOW(), 'pending', 'General')
+        `, [doctorIdNum, patientIdNum, consultationId, referralNotes]);
+        console.log('Referral record created');
+      } else {
+        // Update existing referral
+        console.log('Updating existing referral');
+        await db.query(`
+          UPDATE referral 
+          SET 
+            Reason = ?,
+            UpdatedAt = NOW()
+          WHERE ReferralID = ?
+        `, [referralNotes, existingReferral[0].ReferralID]);
+        console.log('Referral record updated');
+      }
+    } else {
+      console.log('No referral needed or no referral notes');
+    }
 
-    console.log('=== SAVE CONSULTATION FORM SUCCESS ===');
+    // ======================
+    // 6. COMMIT TRANSACTION
+    // ======================
+    await db.query('COMMIT');
+    console.log('Transaction committed successfully');
+
+    // ======================
+    // 7. FETCH UPDATED CONSULTATION DETAILS
+    // ======================
+    console.log('7. Fetching updated consultation details');
+    const [updatedConsultation]: any = await db.query(`
+      SELECT 
+        c.*,
+        pv.VisitID,
+        pv.VisitStatus,
+        pv.QueueStatus
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE c.ConsultationID = ?
+    `, [consultationId]);
     
-    res.json({ 
+    console.log('Updated consultation:', updatedConsultation[0]);
+    
+    const responseData = { 
       success: true,
       message: "Consultation form saved successfully",
       consultationId: consultationId,
       visitId: visitId,
-      isNew: existingConsultation.length === 0
-    });
+      consultation: updatedConsultation[0] || null
+    };
+    
+    console.log('Sending response:', responseData);
+    
+    res.json(responseData);
+    
+    console.log('=== SAVE CONSULTATION FORM SUCCESS ===');
     
   } catch (error: any) {
-    console.error('=== SAVE CONSULTATION FORM ERROR ===');
-    console.error('Error:', error);
+    console.error('SAVE CONSULTATION FORM ERROR:', error);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
+    console.error('SQL error:', error.sqlMessage);
     
     try {
       await db.query('ROLLBACK');
@@ -2656,26 +2848,102 @@ export const saveConsultationForm = async (req: Request, res: Response) => {
       console.error('Rollback error:', rollbackError);
     }
 
-    // Provide detailed error response
     res.status(500).json({ 
       success: false,
       error: "Failed to save consultation form",
       message: error.message,
-      sqlMessage: error.sqlMessage || 'No SQL error',
-      code: error.code,
-      errno: error.errno
+      sqlMessage: error.sqlMessage || 'No SQL error'
     });
   }
 };
 
 // KEEP THE OLD FUNCTION BUT RENAME IT for completing consultation later
 export const completeConsultation = async (req: Request, res: Response) => {
-  const { consultationId, visitId, patientId, doctorId } = req.body;
+  const { consultationId, patientId, doctorId } = req.body;
+  
+  if (!consultationId || !patientId || !doctorId) {
+    return res.status(400).json({ 
+      success: false,
+      error: "Missing required parameters: consultationId, patientId, doctorId" 
+    });
+  }
   
   try {
     await db.query('START TRANSACTION');
     
-    // Update consultation with EndTime
+    // 1. Get consultation details including VisitID
+    const [consultationDetails]: any = await db.query(`
+      SELECT c.*, pv.VisitID, pv.VisitStatus, pv.QueueNumber, pv.PatientID, 
+             pv.QueueStatus, pv.DoctorID
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE c.ConsultationID = ? 
+        AND c.DoctorID = ? 
+        AND pv.PatientID = ?
+    `, [consultationId, doctorId, patientId]);
+    
+    if (consultationDetails.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ 
+        success: false,
+        error: "Consultation not found or access denied" 
+      });
+    }
+    
+    const consultation = consultationDetails[0];
+    const visitId = consultation.VisitID;
+    
+    // 2. Check if consultation already has EndTime (already completed)
+    if (consultation.EndTime) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({ 
+        success: false,
+        error: "Consultation already completed",
+        completedAt: consultation.EndTime
+      });
+    }
+    
+    // 3. Check prescription details
+    const [prescriptionDetails]: any = await db.query(`
+      SELECT 
+        p.PrescriptionID,
+        COUNT(pi.ItemID) as ItemCount,
+        GROUP_CONCAT(d.DrugName SEPARATOR ', ') as Medications
+      FROM prescription p
+      LEFT JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      LEFT JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE p.ConsultationID = ?
+      GROUP BY p.PrescriptionID
+    `, [consultationId]);
+    
+    // 4. Determine next status
+    let nextVisitStatus = 'to-be-billed';
+    let pharmacyQueueNumber = null;
+    let nextDestination = 'Billing Counter';
+    
+    if (prescriptionDetails.length > 0) {
+      nextVisitStatus = 'waiting-prescription';
+      nextDestination = 'Pharmacy';
+      
+      // Generate pharmacy queue number
+      const date = new Date();
+      const dateStr = date.getFullYear().toString().slice(2) + 
+                     (date.getMonth() + 1).toString().padStart(2, '0') + 
+                     date.getDate().toString().padStart(2, '0');
+      
+      // Get next pharmacy queue number for today
+      const [pharmacyQueue]: any = await db.query(`
+        SELECT COUNT(*) as count 
+        FROM patient_visit 
+        WHERE DATE(UpdatedAt) = CURDATE() 
+          AND VisitStatus = 'waiting-prescription'
+      `);
+      
+      const queueCount = pharmacyQueue[0].count + 1;
+      pharmacyQueueNumber = `P-${dateStr}-${queueCount.toString().padStart(3, '0')}`;
+    }
+    
+    // 5. Update consultation
     await db.query(`
       UPDATE consultation 
       SET 
@@ -2684,31 +2952,85 @@ export const completeConsultation = async (req: Request, res: Response) => {
       WHERE ConsultationID = ?
     `, [consultationId]);
     
-    // Update visit status to completed
+    // 6. Update patient visit - QueueStatus remains as 'waiting' (not 'completed')
     await db.query(`
       UPDATE patient_visit 
       SET 
-        VisitStatus = 'completed',
-        QueueStatus = 'completed',
+        VisitStatus = ?,
+        QueueStatus = 'waiting',
+        QueueNumber = COALESCE(?, QueueNumber),
         CheckOutTime = NOW(),
         UpdatedAt = NOW()
       WHERE VisitID = ?
-    `, [visitId]);
+    `, [nextVisitStatus, pharmacyQueueNumber, visitId]);
+    
+    // 7. If going to pharmacy, update prescription with queue info
+    if (prescriptionDetails.length > 0 && pharmacyQueueNumber) {
+      await db.query(`
+        UPDATE prescription 
+        SET Remarks = CONCAT(IFNULL(Remarks, ''), 
+            '\nPharmacy Queue: ${pharmacyQueueNumber}\nTime: ${new Date().toLocaleTimeString()}')
+        WHERE ConsultationID = ?
+      `, [consultationId]);
+    }
+    
+    // 8. Add to medical history if diagnosis exists
+    if (consultation.Diagnosis && consultation.Diagnosis.trim() !== '') {
+      await db.query(`
+        INSERT INTO medical_history (
+          PatientID, 
+          ConsultationID, 
+          VisitID,
+          RecordType, 
+          RecordName, 
+          Description, 
+          Status, 
+          StartDate,
+          Severity,
+          CreatedBy,
+          CreatedAt,
+          UpdatedAt
+        ) VALUES (?, ?, ?, 'condition', ?, ?, 'active', CURDATE(), 'mild', ?, NOW(), NOW())
+      `, [
+        patientId,
+        consultationId,
+        visitId,
+        consultation.Diagnosis,
+        `Primary diagnosis: ${consultation.Diagnosis}\nCode: ${consultation.DiagnosisCode || 'N/A'}`,
+        doctorId
+      ]);
+    }
     
     await db.query('COMMIT');
     
-    res.json({ 
+    // 9. Prepare response
+    const response = {
       success: true,
-      message: "Consultation completed successfully",
+      message: `Consultation completed successfully. Patient needs to visit ${nextDestination}.`,
       consultationId: consultationId,
-      visitId: visitId
-    });
+      visitId: visitId,
+      nextStatus: nextVisitStatus,
+      nextDestination: nextDestination,
+      queueStatus: 'waiting',
+      hasPrescription: prescriptionDetails.length > 0,
+      pharmacyQueueNumber: pharmacyQueueNumber,
+      prescriptionDetails: prescriptionDetails.length > 0 ? {
+        prescriptionId: prescriptionDetails[0].PrescriptionID,
+        itemCount: prescriptionDetails[0].ItemCount,
+        medications: prescriptionDetails[0].Medications
+      } : null,
+      instructions: `Please proceed to ${nextDestination}${pharmacyQueueNumber ? `. Queue: ${pharmacyQueueNumber}` : ''}`
+    };
+    
+    res.json(response);
+    
   } catch (error) {
     await db.query('ROLLBACK');
     console.error("Complete consultation error:", error);
     res.status(500).json({ 
       success: false,
-      error: "Failed to complete consultation" 
+      error: "Failed to complete consultation",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -2851,4 +3173,980 @@ export const getConsultationQueue = async (req: Request, res: Response) => {
   }
 };
 
+// Add this to your doctorController.ts
+export const savePrescription = async (req: Request, res: Response) => {
+  try {
+    console.log('=== SAVE PRESCRIPTION START ===');
+    console.log('Request body:', req.body);
+    console.log('Authenticated user:', (req as any).user);
+    
+    const {
+      patientId,
+      consultationId,
+      items,
+      remarks = ''
+    } = req.body;
 
+    // Get doctorId from authenticated user (from token)
+    const doctorId = (req as any).user?.userId;
+    
+    console.log('Doctor ID from token:', doctorId);
+    console.log('Patient ID from request:', patientId);
+    console.log('Consultation ID from request:', consultationId);
+    
+    if (!doctorId) {
+      console.error('ERROR: Doctor ID not found in authentication token');
+      return res.status(400).json({ 
+        error: "Doctor ID not found. Please log in again." 
+      });
+    }
+
+    if (!patientId || !consultationId || !items || !Array.isArray(items)) {
+      console.error('ERROR: Missing required fields');
+      return res.status(400).json({ 
+        error: "Missing required fields: patientId, consultationId, and items array" 
+      });
+    }
+
+    console.log('Starting transaction...');
+
+    // Start transaction
+    await db.query("START TRANSACTION");
+
+    // ============================================
+    // 1. VERIFY CONSULTATION EXISTS AND DOCTOR HAS PERMISSION
+    // ============================================
+    console.log('1. Verifying consultation access...');
+    
+    const [consultationCheck]: any = await db.query(`
+      SELECT 
+        c.ConsultationID, 
+        c.DoctorID, 
+        c.VisitID, 
+        pv.PatientID,
+        c.StartTime
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE c.ConsultationID = ?
+        AND pv.PatientID = ?
+        AND c.DoctorID = ?
+    `, [consultationId, patientId, doctorId]);
+    
+    console.log('Consultation check result:', consultationCheck);
+    
+    if (consultationCheck.length === 0) {
+      console.error('Consultation not found or doctor does not have permission');
+      await db.query("ROLLBACK");
+      return res.status(404).json({ 
+        error: "Consultation not found or you don't have permission to prescribe for this patient." 
+      });
+    }
+
+    const consultationData = consultationCheck[0];
+    console.log('Consultation verified:', consultationData);
+    console.log('Visit ID:', consultationData.VisitID);
+
+    // ============================================
+    // 2. CREATE PRESCRIPTION HEADER
+    // ============================================
+    console.log('2. Creating prescription header...');
+    
+    const [prescriptionResult]: any = await db.query(`
+      INSERT INTO prescription 
+      (PrescribedDate, Remarks, DoctorID, PatientID, ConsultationID, VisitID)
+      VALUES (CURDATE(), ?, ?, ?, ?, ?)
+    `, [
+      remarks, 
+      doctorId, 
+      patientId, 
+      consultationId, 
+      consultationData.VisitID
+    ]);
+
+    const prescriptionId = prescriptionResult.insertId;
+    console.log('Created prescription ID:', prescriptionId);
+
+    // ============================================
+    // 3. INSERT PRESCRIPTION ITEMS
+    // ============================================
+    console.log('3. Inserting prescription items...');
+    
+    for (const item of items) {
+      console.log('Processing item:', item);
+      
+      // Check if drug exists (but don't check stock - pharmacist handles that)
+      const [drugCheck]: any = await db.query(
+        'SELECT DrugID, DrugName, QuantityInStock FROM drug WHERE DrugID = ?',
+        [item.DrugID]
+      );
+
+      if (drugCheck.length === 0) {
+        await db.query("ROLLBACK");
+        console.error('Drug not found:', item.DrugID);
+        return res.status(400).json({ 
+          error: `Drug with ID ${item.DrugID} not found` 
+        });
+      }
+
+      const drug = drugCheck[0];
+      console.log(`Drug found: ${drug.DrugName}, Stock: ${drug.QuantityInStock}`);
+      
+      // Check if drug is in stock (optional warning, not error)
+      if (drug.QuantityInStock <= 0) {
+        console.warn(`Warning: Drug ${drug.DrugName} is out of stock`);
+      } else if (drug.QuantityInStock < (item.Quantity || 1)) {
+        console.warn(`Warning: Insufficient stock for ${drug.DrugName}. Requested: ${item.Quantity}, Available: ${drug.QuantityInStock}`);
+      }
+
+      // Insert prescription item with status 'pending'
+      const [itemResult]: any = await db.query(`
+        INSERT INTO prescriptionitem 
+        (PrescriptionID, DrugID, Dosage, Frequency, Duration, Quantity, Status, StatusUpdatedAt, StatusUpdatedBy)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), ?)
+      `, [
+        prescriptionId,
+        item.DrugID,
+        item.Dosage || '1',
+        item.Frequency || 'once daily',
+        item.Duration || '7 days',
+        item.Quantity || 1,
+        doctorId
+      ]);
+
+      console.log('Inserted prescription item ID:', itemResult.insertId);
+      
+      // NO inventory updates here - pharmacist handles dispensing
+      // NO inventory log here - pharmacist handles when dispensing
+    }
+
+    // ============================================
+    // 4. UPDATE CONSULTATION WITH PRESCRIPTION INFO (OPTIONAL)
+    // ============================================
+    console.log('4. Updating consultation with prescription info...');
+    
+    try {
+      await db.query(`
+        UPDATE consultation 
+        SET 
+          TreatmentPlan = CONCAT(
+            IFNULL(TreatmentPlan, ''),
+            '\n\n## Prescription Created\n',
+            '- Prescription ID: ', ?, '\n',
+            '- Date: ', CURDATE(), '\n',
+            '- Items: ', ?
+          ),
+          UpdatedAt = NOW()
+        WHERE ConsultationID = ?
+      `, [
+        prescriptionId,
+        items.map(item => item.DrugName || `Drug ID ${item.DrugID}`).join(', '),
+        consultationId
+      ]);
+      
+      console.log('Consultation updated with prescription info');
+    } catch (updateError) {
+      console.warn('Could not update consultation:', updateError);
+      // Continue anyway - this is not critical
+    }
+
+    // ============================================
+    // 5. UPDATE PATIENT VISIT STATUS (OPTIONAL)
+    // ============================================
+    console.log('5. Updating patient visit status...');
+    
+    try {
+      await db.query(`
+        UPDATE patient_visit 
+        SET 
+          VisitStatus = 'waiting-prescription',
+          UpdatedAt = NOW()
+        WHERE VisitID = ?
+      `, [consultationData.VisitID]);
+      
+      console.log('Patient visit status updated to waiting-prescription');
+    } catch (statusError) {
+      console.warn('Could not update patient visit status:', statusError);
+      // Continue anyway
+    }
+
+    // ============================================
+    // 6. COMMIT TRANSACTION
+    // ============================================
+    await db.query("COMMIT");
+
+    console.log('=== SAVE PRESCRIPTION SUCCESS ===');
+    console.log('Prescription ID:', prescriptionId);
+    console.log('Number of items:', items.length);
+    
+    // ============================================
+    // 7. GENERATE PHARMACY QUEUE NUMBER
+    // ============================================
+    console.log('7. Generating pharmacy queue number...');
+    
+    // Generate queue number for pharmacy (P-YYYYMMDD-XXX)
+    const today = new Date();
+    const dateString = today.getFullYear().toString().slice(-2) + 
+                      String(today.getMonth() + 1).padStart(2, '0') + 
+                      String(today.getDate()).padStart(2, '0');
+    
+    // Get today's prescription count for queue number
+    const [prescriptionCount]: any = await db.query(`
+      SELECT COUNT(*) as count 
+      FROM prescription 
+      WHERE DATE(PrescribedDate) = CURDATE()
+    `);
+    
+    const queueNumber = `P-${dateString}-${String(prescriptionCount[0].count + 1).padStart(3, '0')}`;
+    console.log('Pharmacy queue number:', queueNumber);
+    
+    // Store queue number in prescription
+    await db.query(`
+      UPDATE prescription 
+      SET Remarks = CONCAT(IFNULL(Remarks, ''), '\nPharmacy Queue: ', ?, '\nTime: ', DATE_FORMAT(NOW(), '%r'))
+      WHERE PrescriptionID = ?
+    `, [queueNumber, prescriptionId]);
+
+    res.status(201).json({
+      success: true,
+      message: "Prescription saved successfully",
+      prescriptionId: prescriptionId,
+      pharmacyQueue: queueNumber,
+      itemsCount: items.length,
+      consultationId: consultationId,
+      visitId: consultationData.VisitID
+    });
+
+  } catch (error: any) {
+    await db.query("ROLLBACK");
+    console.error("=== SAVE PRESCRIPTION ERROR ===");
+    console.error("Error:", error);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    
+    res.status(500).json({ 
+      error: "Failed to save prescription",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      sqlMessage: error.sqlMessage
+    });
+  }
+};
+
+// Get prescription items for a patient
+export const getPatientPrescriptions = async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    
+    const [prescriptions]: any = await db.query(`
+      SELECT 
+        p.PrescriptionID,
+        p.PrescribedDate,
+        p.Remarks,
+        u.Name as DoctorName,
+        d.DrugName,
+        pi.Dosage,
+        pi.Frequency,
+        pi.Duration,
+        pi.Quantity,
+        pi.Status,
+        pi.StatusUpdatedAt,
+        d.UnitPrice,
+        (pi.Quantity * d.UnitPrice) as TotalAmount
+      FROM prescription p
+      JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      JOIN drug d ON pi.DrugID = d.DrugID
+      JOIN useraccount u ON p.DoctorID = u.UserID
+      WHERE p.PatientID = ?
+      ORDER BY p.PrescribedDate DESC, p.PrescriptionID DESC
+    `, [patientId]);
+
+    res.json(prescriptions);
+  } catch (error) {
+    console.error("Error fetching prescriptions:", error);
+    res.status(500).json({ error: "Failed to fetch prescriptions" });
+  }
+};
+
+// Add this new function to doctorController.ts
+export const getActiveConsultationByPatientDoctor = async (req: Request, res: Response) => {
+  try {
+    const { patientId, doctorId } = req.params;
+    
+    const [consultation]: any = await db.query(`
+      SELECT c.*, pv.VisitID, pv.VisitStatus
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE pv.PatientID = ?
+        AND c.DoctorID = ?
+        AND DATE(c.CreatedAt) = CURDATE()
+      ORDER BY c.CreatedAt DESC
+      LIMIT 1
+    `, [patientId, doctorId]);
+    
+    if (consultation.length > 0) {
+      res.json({
+        success: true,
+        consultation: consultation[0]
+      });
+    } else {
+      res.json({
+        success: false,
+        message: "No active consultation found"
+      });
+    }
+  } catch (error) {
+    console.error("Get consultation error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to get consultation" 
+    });
+  }
+};
+
+// Add this function to your doctorController.ts
+export const updateConsultation = async (req: Request, res: Response) => {
+  console.log('=== UPDATE CONSULTATION ENDPOINT HIT ===');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  
+  try {
+    const {
+      consultationId,
+      patientId,
+      doctorId,
+      chiefComplaint,
+      historyOfPresentIllness,
+      diagnosis,
+      diagnosisCode,
+      treatmentPlan,
+      consultationNotes,
+      followUpInstructions,
+      followUpDate,
+      physicalExamFindings,
+      labTestsOrdered = false,
+      referralGiven = false,
+      severityAssessment,
+      differentialDiagnosis,
+      medicationPlan,
+      nonMedicationPlan,
+      patientEducation,
+      lifestyleAdvice,
+      warningSigns,
+      disposition,
+      referralNotes,
+      pastMedicalHistory,
+      familyHistory,
+      needsFollowUp,
+      followUpTime,
+      followUpPurpose,
+      referralNeeded
+    } = req.body;
+    
+    console.log('Parsed consultationId:', consultationId);
+    
+    // Validate required fields
+    if (!consultationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: consultationId'
+      });
+    }
+
+    const consultationIdNum = parseInt(consultationId);
+    
+    console.log('Starting transaction...');
+    await db.query('START TRANSACTION');
+
+    // ======================
+    // 1. VERIFY CONSULTATION EXISTS AND BELONGS TO DOCTOR
+    // ======================
+    console.log('1. Verifying consultation exists...');
+    
+console.log('1. Verifying consultation exists...');
+
+const [consultationCheck]: any = await db.query(`
+  SELECT 
+    c.ConsultationID, 
+    c.DoctorID, 
+    c.VisitID,
+    pv.PatientID
+  FROM consultation c
+  JOIN patient_visit pv ON c.VisitID = pv.VisitID
+  WHERE c.ConsultationID = ?
+`, [consultationIdNum]);
+    
+    console.log('Consultation check result:', consultationCheck);
+    
+    if (consultationCheck.length === 0) {
+      console.error('Consultation not found');
+      await db.query('ROLLBACK');
+      return res.status(404).json({ 
+        success: false,
+        error: "Consultation not found" 
+      });
+    }
+    
+    const existingConsultation = consultationCheck[0];
+    
+    // Verify doctor has permission to update this consultation
+    if (doctorId && existingConsultation.DoctorID !== parseInt(doctorId)) {
+      console.error('Doctor does not have permission to update this consultation');
+      await db.query('ROLLBACK');
+      return res.status(403).json({ 
+        success: false,
+        error: "You do not have permission to update this consultation" 
+      });
+    }
+    
+    console.log('Consultation verified, belongs to doctor:', existingConsultation.DoctorID);
+
+    // ======================
+    // 2. PARSE PHYSICAL EXAM FINDINGS
+    // ======================
+    let parsedPhysicalExamFindings = {};
+    try {
+      if (physicalExamFindings) {
+        console.log('Physical exam findings raw:', physicalExamFindings);
+        if (typeof physicalExamFindings === 'string') {
+          parsedPhysicalExamFindings = JSON.parse(physicalExamFindings);
+        } else if (typeof physicalExamFindings === 'object') {
+          parsedPhysicalExamFindings = physicalExamFindings;
+        }
+        console.log('Parsed physical exam findings:', parsedPhysicalExamFindings);
+      } else {
+        console.log('No physical exam findings provided');
+      }
+    } catch (parseError) {
+      console.warn('Could not parse physicalExamFindings:', parseError);
+      parsedPhysicalExamFindings = {};
+    }
+
+    // ======================
+    // 3. UPDATE CONSULTATION
+    // ======================
+    console.log('3. Updating consultation...');
+    
+    const updateQuery = `
+      UPDATE consultation 
+      SET 
+        ChiefComplaint = COALESCE(?, ChiefComplaint),
+        HistoryOfPresentIllness = COALESCE(?, HistoryOfPresentIllness),
+        PhysicalExamFindings = COALESCE(?, PhysicalExamFindings),
+        Diagnosis = COALESCE(?, Diagnosis),
+        DiagnosisCode = COALESCE(?, DiagnosisCode),
+        TreatmentPlan = COALESCE(?, TreatmentPlan),
+        LabTestsOrdered = COALESCE(?, LabTestsOrdered),
+        ReferralGiven = COALESCE(?, ReferralGiven),
+        FollowUpDate = COALESCE(?, FollowUpDate),
+        FollowUpInstructions = COALESCE(?, FollowUpInstructions),
+        ConsultationNotes = COALESCE(?, ConsultationNotes),
+        SeverityAssessment = COALESCE(?, SeverityAssessment),
+        MedicationPlan = COALESCE(?, MedicationPlan),
+        NonMedicationPlan = COALESCE(?, NonMedicationPlan),
+        PatientEducation = COALESCE(?, PatientEducation),
+        LifestyleAdvice = COALESCE(?, LifestyleAdvice),
+        WarningSigns = COALESCE(?, WarningSigns),
+        Disposition = COALESCE(?, Disposition),
+        ReferralNotes = COALESCE(?, ReferralNotes),
+        PastMedicalHistory = COALESCE(?, PastMedicalHistory),
+        FamilyHistory = COALESCE(?, FamilyHistory),
+        DifferentialDiagnosis = COALESCE(?, DifferentialDiagnosis),
+        NeedsFollowUp = COALESCE(?, NeedsFollowUp),
+        FollowUpTime = COALESCE(?, FollowUpTime),
+        FollowUpPurpose = COALESCE(?, FollowUpPurpose),
+        ReferralNeeded = COALESCE(?, ReferralNeeded),
+        UpdatedAt = NOW()
+      WHERE ConsultationID = ?
+    `;
+    
+    const updateParams = [
+      chiefComplaint || null,
+      historyOfPresentIllness || null,
+      JSON.stringify(parsedPhysicalExamFindings) || null,
+      diagnosis || null,
+      diagnosisCode || null,
+      treatmentPlan || null,
+      labTestsOrdered ? 1 : 0,
+      referralGiven ? 1 : 0,
+      followUpDate || null,
+      followUpInstructions || null,
+      consultationNotes || null,
+      severityAssessment || null,
+      medicationPlan || null,
+      nonMedicationPlan || null,
+      patientEducation || null,
+      lifestyleAdvice || null,
+      warningSigns || null,
+      disposition || null,
+      referralNotes || null,
+      pastMedicalHistory || null,
+      familyHistory || null,
+      differentialDiagnosis || null,
+      needsFollowUp ? 1 : 0,
+      followUpTime || null,
+      followUpPurpose || null,
+      referralNeeded ? 1 : 0,
+      consultationIdNum
+    ];
+    
+    console.log('Update query:', updateQuery);
+    console.log('Update params:', updateParams);
+    
+    const [updateResult]: any = await db.query(updateQuery, updateParams);
+    
+    console.log('Update result:', updateResult);
+    console.log('Rows affected:', updateResult.affectedRows);
+
+    // ======================
+    // 4. UPDATE MEDICAL HISTORY ENTRY FOR DIAGNOSIS
+    // ======================
+    if (diagnosis && diagnosis.trim()) {
+      console.log('4. Updating medical history for diagnosis:', diagnosis);
+      const currentDate = new Date().toISOString().split('T')[0];
+      
+      // Check if this diagnosis is already in medical history for this consultation
+      const [existingHistory]: any = await db.query(`
+        SELECT HistoryID FROM medical_history 
+        WHERE PatientID = ? 
+          AND ConsultationID = ?
+          AND RecordType = 'condition'
+          AND RecordName = ?
+      `, [existingConsultation.PatientID, consultationIdNum, diagnosis]);
+
+      console.log('Existing medical history found:', existingHistory.length);
+      
+      if (existingHistory.length > 0) {
+        // Update existing medical history entry
+        console.log('Updating existing medical history entry');
+        await db.query(`
+          UPDATE medical_history 
+          SET 
+            RecordName = ?,
+            Description = ?,
+            Severity = COALESCE(?, Severity),
+            Notes = COALESCE(?, Notes),
+            UpdatedAt = NOW()
+          WHERE HistoryID = ?
+        `, [
+          diagnosis,
+          `Primary diagnosis: ${diagnosis}\nCode: ${diagnosisCode || 'N/A'}`,
+          severityAssessment || null,
+          consultationNotes || null,
+          existingHistory[0].HistoryID
+        ]);
+        console.log('Medical history entry updated');
+      } else {
+        // Create new medical history entry if diagnosis changed
+        console.log('Creating new medical history entry for updated diagnosis');
+        await db.query(`
+          INSERT INTO medical_history 
+          (PatientID, ConsultationID, VisitID, RecordType, RecordName, 
+           Description, Status, StartDate, Severity, Notes, CreatedBy, CreatedAt)
+          VALUES (?, ?, ?, 'condition', ?, ?, 'active', ?, ?, ?, ?, NOW())
+        `, [
+          existingConsultation.PatientID,
+          consultationIdNum,
+          existingConsultation.VisitID,
+          diagnosis,
+          `Primary diagnosis: ${diagnosis}\nCode: ${diagnosisCode || 'N/A'}`,
+          currentDate,
+          severityAssessment || 'moderate',
+          consultationNotes || null,
+          existingConsultation.DoctorID
+        ]);
+        console.log('New medical history entry created');
+      }
+    }
+
+    // ======================
+    // 5. UPDATE/CREATE REFERRAL IF NEEDED
+    // ======================
+    if (referralGiven && referralNotes) {
+      console.log('5. Creating/updating referral');
+      // Check if referral already exists for this consultation
+      const [existingReferral]: any = await db.query(`
+        SELECT ReferralID FROM referral 
+        WHERE ConsultationID = ?
+      `, [consultationIdNum]);
+      
+      if (existingReferral.length === 0) {
+        // Create new referral
+        console.log('Creating new referral');
+        await db.query(`
+          INSERT INTO referral 
+          (DoctorID, PatientID, ConsultationID, Reason, Urgency, 
+           ReferralDate, Status, Specialty)
+          VALUES (?, ?, ?, ?, 'routine', NOW(), 'pending', 'General')
+        `, [existingConsultation.DoctorID, existingConsultation.PatientID, consultationIdNum, referralNotes]);
+        console.log('Referral record created');
+      } else {
+        // Update existing referral
+        console.log('Updating existing referral');
+        await db.query(`
+          UPDATE referral 
+          SET 
+            Reason = ?,
+            UpdatedAt = NOW()
+          WHERE ReferralID = ?
+        `, [referralNotes, existingReferral[0].ReferralID]);
+        console.log('Referral record updated');
+      }
+    }
+
+    // ======================
+    // 6. COMMIT TRANSACTION
+    // ======================
+    await db.query('COMMIT');
+    console.log('Transaction committed successfully');
+
+    // ======================
+    // 7. FETCH UPDATED CONSULTATION DETAILS
+    // ======================
+    console.log('7. Fetching updated consultation details');
+    const [updatedConsultation]: any = await db.query(`
+      SELECT 
+        c.*,
+        pv.VisitID,
+        pv.VisitStatus,
+        pv.QueueStatus
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE c.ConsultationID = ?
+    `, [consultationIdNum]);
+    
+    console.log('Updated consultation:', updatedConsultation[0]);
+    
+    const responseData = { 
+      success: true,
+      message: "Consultation updated successfully",
+      consultationId: consultationIdNum,
+      consultation: updatedConsultation[0] || null
+    };
+    
+    console.log('Sending response:', responseData);
+    
+    res.json(responseData);
+    
+    console.log('=== UPDATE CONSULTATION SUCCESS ===');
+    
+  } catch (error: any) {
+    console.error('UPDATE CONSULTATION ERROR:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('SQL error:', error.sqlMessage);
+    
+    try {
+      await db.query('ROLLBACK');
+      console.log('Transaction rolled back');
+    } catch (rollbackError) {
+      console.error('Rollback error:', rollbackError);
+    }
+
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to update consultation",
+      message: error.message,
+      sqlMessage: error.sqlMessage || 'No SQL error'
+    });
+  }
+};
+
+// In your backend (e.g., doctor.routes.js)
+
+// Add these functions to your doctorController.ts file
+
+// Get patient visits with doctor name
+export const getPatientVisitsD = async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    
+    const visits = await db.query(`
+      SELECT 
+        pv.VisitID,
+        pv.AppointmentID,
+        pv.PatientID,
+        pv.DoctorID,
+        pv.VisitType,
+        pv.ArrivalTime,
+        pv.CheckInTime,
+        pv.CheckOutTime,
+        pv.VisitStatus,
+        pv.VisitNotes,
+        pv.QueueNumber,
+        pv.TriagePriority,
+        u.Name AS DoctorName,
+        c.ConsultationID,
+        a.Purpose
+      FROM patient_visit pv
+      LEFT JOIN useraccount u ON pv.DoctorID = u.UserID
+      LEFT JOIN consultation c ON pv.VisitID = c.VisitID
+      LEFT JOIN appointment a ON pv.AppointmentID = a.AppointmentID
+      WHERE pv.PatientID = ?
+      ORDER BY pv.ArrivalTime DESC
+    `, [patientId]);
+    
+    res.json(visits);
+  } catch (error) {
+    console.error('Error fetching visits:', error);
+    res.status(500).json({ error: 'Failed to fetch visits' });
+  }
+};
+
+// Get patient consultations with all details
+// Get patient consultations with all details - FIXED VERSION
+export const getPatientConsultationsD = async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    
+    const consultations = await db.query(`
+      SELECT 
+        c.ConsultationID,
+        c.VisitID,
+        c.DoctorID,
+        c.StartTime,
+        c.EndTime,
+        c.ChiefComplaint,
+        c.HistoryOfPresentIllness,
+        c.PhysicalExamFindings,
+        c.Diagnosis,
+        c.DiagnosisCode,
+        c.TreatmentPlan,
+        c.ConsultationNotes,
+        c.SeverityAssessment,
+        c.FollowUpDate,
+        c.FollowUpInstructions,
+        c.MedicationPlan,
+        c.NonMedicationPlan,
+        c.PatientEducation,
+        c.LifestyleAdvice,
+        c.WarningSigns,
+        c.Disposition,
+        c.ReferralNotes,
+        c.PastMedicalHistory,
+        c.FamilyHistory,
+        c.DifferentialDiagnosis,
+        c.NeedsFollowUp,
+        c.FollowUpTime,
+        c.FollowUpPurpose,
+        c.ReferralNeeded,
+        c.CreatedAt,
+        c.UpdatedAt,
+        -- Doctor information
+        u.Name AS DoctorName,
+        dp.Specialization AS DoctorSpecialization,
+        -- Visit information
+        pv.VisitID,
+        pv.VisitType,
+        pv.VisitStatus,
+        pv.ArrivalTime AS VisitDate,
+        -- Vital signs data
+        vs.VitalSignID,
+        vs.Temperature,
+        vs.BloodPressureSystolic,
+        vs.BloodPressureDiastolic,
+        vs.HeartRate,
+        vs.RespiratoryRate,
+        vs.OxygenSaturation,
+        vs.Height,
+        vs.Weight,
+        vs.BMI,
+        vs.PainLevel,
+        vs.TakenAt AS VitalSignsTakenAt,
+        vs.TakenBy AS VitalSignsTakenBy,
+        -- Prescription count
+        (SELECT COUNT(*) FROM prescription pr WHERE pr.ConsultationID = c.ConsultationID) AS PrescriptionCount,
+        -- Allergy count
+        (SELECT COUNT(*) FROM allergy_findings af WHERE af.ConsultationID = c.ConsultationID) AS AllergyCount
+      FROM consultation c
+      -- Join with doctor information
+      LEFT JOIN useraccount u ON c.DoctorID = u.UserID
+      LEFT JOIN doctorprofile dp ON c.DoctorID = dp.DoctorID
+      -- Join with patient_visit to get patient context
+      LEFT JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      -- Join with vital signs
+      LEFT JOIN vital_signs vs ON c.ConsultationID = vs.ConsultationID
+      WHERE pv.PatientID = ? OR c.ConsultationID IN (
+        SELECT DISTINCT c2.ConsultationID 
+        FROM consultation c2
+        JOIN patient_visit pv2 ON c2.VisitID = pv2.VisitID
+        WHERE pv2.PatientID = ?
+      )
+      ORDER BY COALESCE(c.StartTime, c.CreatedAt) DESC
+    `, [patientId, patientId]);
+    
+    // Process the results to handle multiple vital signs entries
+    const consultationMap = new Map();
+    
+    consultations.forEach((consultation: any) => {
+      const consultId = consultation.ConsultationID;
+      
+      if (!consultationMap.has(consultId)) {
+        // First time seeing this consultation
+        consultationMap.set(consultId, {
+          ...consultation,
+          vitalSigns: consultation.Temperature ? [{
+            Temperature: consultation.Temperature,
+            BloodPressureSystolic: consultation.BloodPressureSystolic,
+            BloodPressureDiastolic: consultation.BloodPressureDiastolic,
+            HeartRate: consultation.HeartRate,
+            RespiratoryRate: consultation.RespiratoryRate,
+            OxygenSaturation: consultation.OxygenSaturation,
+            Height: consultation.Height,
+            Weight: consultation.Weight,
+            BMI: consultation.BMI,
+            PainLevel: consultation.PainLevel,
+            TakenAt: consultation.VitalSignsTakenAt
+          }] : []
+        });
+      } else if (consultation.Temperature) {
+        // Add additional vital signs entry
+        const existing = consultationMap.get(consultId);
+        existing.vitalSigns.push({
+          Temperature: consultation.Temperature,
+          BloodPressureSystolic: consultation.BloodPressureSystolic,
+          BloodPressureDiastolic: consultation.BloodPressureDiastolic,
+          HeartRate: consultation.HeartRate,
+          RespiratoryRate: consultation.RespiratoryRate,
+          OxygenSaturation: consultation.OxygenSaturation,
+          Height: consultation.Height,
+          Weight: consultation.Weight,
+          BMI: consultation.BMI,
+          PainLevel: consultation.PainLevel,
+          TakenAt: consultation.VitalSignsTakenAt
+        });
+      }
+    });
+    
+    // Convert map back to array and remove duplicate vital signs fields
+    const processedConsultations = Array.from(consultationMap.values()).map((consult: any) => {
+      const { 
+        VitalSignID, Temperature, BloodPressureSystolic, BloodPressureDiastolic, 
+        HeartRate, RespiratoryRate, OxygenSaturation, Height, Weight, BMI, 
+        PainLevel, VitalSignsTakenAt, VitalSignsTakenBy, ...rest 
+      } = consult;
+      
+      return {
+        ...rest,
+        // If there are multiple vital signs, use the most recent one for display
+        Temperature: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].Temperature : null,
+        BloodPressureSystolic: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].BloodPressureSystolic : null,
+        BloodPressureDiastolic: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].BloodPressureDiastolic : null,
+        HeartRate: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].HeartRate : null,
+        RespiratoryRate: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].RespiratoryRate : null,
+        OxygenSaturation: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].OxygenSaturation : null,
+        Height: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].Height : null,
+        Weight: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].Weight : null,
+        BMI: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].BMI : null,
+        PainLevel: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].PainLevel : null,
+        VitalSignsTakenAt: consult.vitalSigns.length > 0 ? consult.vitalSigns[0].TakenAt : null,
+        allVitalSigns: consult.vitalSigns // Keep all vital signs for detailed view
+      };
+    });
+    
+    res.json(processedConsultations);
+  } catch (error) {
+    console.error('Error fetching consultations:', error);
+    res.status(500).json({ error: 'Failed to fetch consultations' });
+  }
+};
+
+// In your doctorController.ts, update the getPatientPrescriptionsD function:
+
+// Update your backend function to add logging:
+export const getPatientPrescriptionsD = async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    console.log(`Fetching prescriptions for patient ID: ${patientId}`);
+    
+    const prescriptions = await db.query(`
+      SELECT 
+        p.PrescriptionID,
+        p.PrescribedDate,
+        p.Remarks,
+        p.Status,
+        u.Name AS DoctorName,
+        c.ConsultationID,
+        c.Diagnosis
+      FROM prescription p
+      LEFT JOIN useraccount u ON p.DoctorID = u.UserID
+      LEFT JOIN consultation c ON p.ConsultationID = c.ConsultationID
+      WHERE p.PatientID = ?
+      ORDER BY p.PrescribedDate DESC
+    `, [patientId]);
+    
+    console.log(`Found ${prescriptions.length} prescriptions`);
+    
+    // Get prescription items for each prescription
+    const prescriptionsWithItems = await Promise.all(
+      prescriptions.map(async (prescription: any) => {
+        try {
+          console.log(`Fetching items for prescription ${prescription.PrescriptionID}`);
+          
+          const items = await db.query(`
+            SELECT 
+              pi.ItemID,
+              pi.Dosage,
+              pi.Frequency,
+              pi.Duration,
+              pi.Quantity,
+              pi.Status,
+              d.DrugName,
+              d.Category
+            FROM prescriptionitem pi
+            LEFT JOIN drug d ON pi.DrugID = d.DrugID
+            WHERE pi.PrescriptionID = ?
+          `, [prescription.PrescriptionID]);
+          
+          console.log(`Found ${items.length} items for prescription ${prescription.PrescriptionID}`);
+          
+          if (items.length > 0) {
+            console.log('First item:', items[0]);
+          }
+          
+          return {
+            ...prescription,
+            items: items && items.length > 0 ? items : []
+          };
+        } catch (error) {
+          console.error(`Error fetching items for prescription ${prescription.PrescriptionID}:`, error);
+          return {
+            ...prescription,
+            items: []
+          };
+        }
+      })
+    );
+    
+    console.log('Final response structure:', prescriptionsWithItems[0]);
+    res.json(prescriptionsWithItems);
+  } catch (error) {
+    console.error('Error fetching prescriptions:', error);
+    res.status(500).json({ error: 'Failed to fetch prescriptions' });
+  }
+};
+
+// Get patient allergies
+export const getPatientAllergiesD = async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    
+    const allergies = await db.query(`
+      SELECT 
+        af.AllergyFindingID,
+        af.AllergyName,
+        af.Reaction,
+        af.Severity,
+        af.OnsetDate,
+        af.Status,
+        af.Notes
+      FROM allergy_findings af
+      INNER JOIN consultation c ON af.ConsultationID = c.ConsultationID
+      INNER JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE pv.PatientID = ?
+      ORDER BY af.Severity DESC, af.OnsetDate DESC
+    `, [patientId]);
+    
+    res.json(allergies);
+  } catch (error) {
+    console.error('Error fetching allergies:', error);
+    res.status(500).json({ error: 'Failed to fetch allergies' });
+  }
+};

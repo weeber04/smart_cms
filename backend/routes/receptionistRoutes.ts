@@ -29,7 +29,10 @@ import {
   markNoShow,
 
     // NEW: Walk-in registration
-  registerWalkIn
+  registerWalkIn,
+  callPatientToBilling,
+  goToBilling
+
 } from '../controllers/receptionistController';
 
 const router = express.Router();
@@ -52,6 +55,8 @@ router.post('/register-patient', registerPatient);
 
 // NEW: Walk-in registration route
 router.post('/walkin', registerWalkIn);
+router.post('/call-patient-to-billing', callPatientToBilling);
+router.post('/go-to-billing', goToBilling);
 
 // Appointment Management
 router.get('/appointments', getAppointments);

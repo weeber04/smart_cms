@@ -225,52 +225,92 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
     }
   };
 
-  const getStatusBadge = (visit: any) => {
-    const baseClasses = "text-xs font-medium";
-    
-    switch (visit.QueueStatus || visit.VisitStatus) {
-      case 'waiting':
+const getStatusBadge = (visit: any) => {
+  const baseClasses = "text-xs font-medium";
+  
+  // Check for ready-for-checkout status
+  if (visit.VisitStatus === 'ready-for-checkout' || visit.VisitStatus === 'waiting-for-results') {
+    if (visit.QueueNumber?.startsWith('P-')) {
+      // Pharmacy status
+      if (visit.QueueStatus === 'waiting') {
         return (
           <Badge className={`${baseClasses} bg-blue-100 text-blue-800 hover:bg-blue-100`}>
             <Clock className="size-3 mr-1" />
-            Waiting
+            Ready for Pharmacy
           </Badge>
         );
-      case 'in-progress':
-      case 'in-consultation':
+      } else if (visit.QueueStatus === 'in-progress') {
         return (
-          <Badge className={`${baseClasses} bg-purple-100 text-purple-800 hover:bg-purple-100`}>
-            <User className="size-3 mr-1" />
-            In Consultation
-          </Badge>
-        );
-      case 'checked-in':
-        return (
-          <Badge className={`${baseClasses} bg-green-100 text-green-800 hover:bg-green-100`}>
+          <Badge className={`${baseClasses} bg-blue-100 text-blue-800 hover:bg-blue-100`}>
             <CheckCircle className="size-3 mr-1" />
-            Checked In
+            At Pharmacy
           </Badge>
         );
-      case 'completed':
+      }
+    } else {
+      // Billing status
+      if (visit.QueueStatus === 'waiting') {
         return (
-          <Badge className={`${baseClasses} bg-gray-100 text-gray-800 hover:bg-gray-100`}>
-            Completed
+          <Badge className={`${baseClasses} bg-orange-100 text-orange-800 hover:bg-orange-100`}>
+            <Clock className="size-3 mr-1" />
+            Ready for Billing
           </Badge>
         );
-      case 'cancelled':
+      } else if (visit.QueueStatus === 'in-progress') {
         return (
-          <Badge className={`${baseClasses} bg-red-100 text-red-800 hover:bg-red-100`}>
-            Cancelled
+          <Badge className={`${baseClasses} bg-orange-100 text-orange-800 hover:bg-orange-100`}>
+            <CheckCircle className="size-3 mr-1" />
+            At Billing
           </Badge>
         );
-      default:
-        return (
-          <Badge className={`${baseClasses} bg-gray-100 text-gray-800 hover:bg-gray-100`}>
-            {visit.VisitStatus || 'Pending'}
-          </Badge>
-        );
+      }
     }
-  };
+  }
+  
+  // Original status badges
+  switch (visit.QueueStatus || visit.VisitStatus) {
+    case 'waiting':
+      return (
+        <Badge className={`${baseClasses} bg-blue-100 text-blue-800 hover:bg-blue-100`}>
+          <Clock className="size-3 mr-1" />
+          Waiting
+        </Badge>
+      );
+    case 'in-progress':
+    case 'in-consultation':
+      return (
+        <Badge className={`${baseClasses} bg-purple-100 text-purple-800 hover:bg-purple-100`}>
+          <User className="size-3 mr-1" />
+          In Consultation
+        </Badge>
+      );
+    case 'checked-in':
+      return (
+        <Badge className={`${baseClasses} bg-green-100 text-green-800 hover:bg-green-100`}>
+          <CheckCircle className="size-3 mr-1" />
+          Checked In
+        </Badge>
+      );
+    case 'completed':
+      return (
+        <Badge className={`${baseClasses} bg-gray-100 text-gray-800 hover:bg-gray-100`}>
+          Completed
+        </Badge>
+      );
+    case 'cancelled':
+      return (
+        <Badge className={`${baseClasses} bg-red-100 text-red-800 hover:bg-red-100`}>
+          Cancelled
+        </Badge>
+      );
+    default:
+      return (
+        <Badge className={`${baseClasses} bg-gray-100 text-gray-800 hover:bg-gray-100`}>
+          {visit.VisitStatus || 'Pending'}
+        </Badge>
+      );
+  }
+};
 
   // Helper function for conditional styling
   const getCardClasses = (priority: TriagePriority) => {
@@ -484,28 +524,76 @@ export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) 
                   </div>
                   
                   {/* Receptionist Actions */}
-                  <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
-                    {(visit.QueueStatus === 'waiting' || visit.VisitStatus === 'checked-in' || visit.VisitStatus === 'waiting') && (
-                      <>
-                        <Button 
-                          size="sm" 
-                          variant="destructive" 
-                          className="flex-1"
-                          onClick={() => setCancelVisitId(visit.VisitID)}
-                        >
-                          <X className="size-3 mr-1" />
-                          Cancel
-                        </Button>
-                      </>
-                    )}
-                    
-                    {(visit.QueueStatus === 'in-progress' || visit.VisitStatus === 'in-consultation') && (
-                      <div className="text-center w-full text-sm text-gray-500 flex items-center justify-center gap-2">
-                        <User className="size-4" />
-                        <span>Patient with doctor</span>
-                      </div>
-                    )}
-                  </div>
+<div className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
+  {/* Pharmacy: Waiting for medicine */}
+  {(visit.QueueStatus === 'waiting' && visit.VisitStatus === 'waiting-prescription') && (
+    <div className="text-center w-full text-sm text-gray-500 flex items-center justify-center gap-2">
+      <Clock className="size-4" />
+      <span>Waiting for medicine</span>
+    </div>
+  )}
+  
+  {/* Pharmacy: Claiming medicine */}
+  {(visit.QueueStatus === 'in-progress' && visit.VisitStatus === 'waiting-prescription') && (
+    <div className="text-center w-full text-sm text-gray-500 flex items-center justify-center gap-2">
+      <CheckCircle className="size-4" />
+      <span>Claiming medicine</span>
+    </div>
+  )}
+  
+  {/* Billing: Call patient button - Patient is waiting to be called */}
+  {(visit.QueueStatus === 'waiting' && visit.VisitStatus === 'to-be-billed') && (
+    <Button 
+      size="sm" 
+      variant="default"
+      className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
+      onClick={async () => {
+        // Call patient to billing
+        console.log('Call patient to billing:', visit.VisitID);
+      }}
+    >
+      <Bell className="size-3 mr-1" />
+      Call patient
+    </Button>
+  )}
+  
+  {/* Billing: Go to billing button - Patient has been called */}
+  {(visit.QueueStatus === 'in-progress' && visit.VisitStatus === 'to-be-billed') && (
+    <Button 
+      size="sm" 
+      variant="default"
+      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+      onClick={async () => {
+        // Go to billing
+        console.log('Go to billing:', visit.VisitID);
+      }}
+    >
+      <CheckCircle className="size-3 mr-1" />
+      Go to billing
+    </Button>
+  )}
+  
+  {/* In consultation with doctor - Only show if NOT billing or pharmacy */}
+  {(visit.VisitStatus === 'in-consultation') && (
+    <div className="text-center w-full text-sm text-gray-500 flex items-center justify-center gap-2">
+      <User className="size-4" />
+      <span>Patient with doctor</span>
+    </div>
+  )}
+  
+  {/* Cancel button - Only for waiting patients who are checked-in or scheduled */}
+  {(visit.QueueStatus === 'waiting' && (visit.VisitStatus === 'checked-in' || visit.VisitStatus === 'scheduled')) && (
+    <Button 
+      size="sm" 
+      variant="destructive" 
+      className="flex-1"
+      onClick={() => setCancelVisitId(visit.VisitID)}
+    >
+      <X className="size-3 mr-1" />
+      Cancel
+    </Button>
+  )}
+</div>
                 </div>
               ))}
             </div>

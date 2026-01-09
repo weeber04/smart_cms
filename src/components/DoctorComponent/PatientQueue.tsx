@@ -67,6 +67,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
   const [currentlyCalledPatient, setCurrentlyCalledPatient] = useState<number | null>(null);
   const [calledPatientData, setCalledPatientData] = useState<any>(null);
   const navigate = useNavigate();
+  const [currentConsultationId, setCurrentConsultationId] = useState<number | null>(null);
 
     const filteredUnassignedPatients = unassignedPatients.filter(patient => {
     const matchesSearch = patient.PatientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -449,7 +450,10 @@ const handleClaimPatient = async (visitId: number) => {
 };
 
 const handleCallPatient = async (visitId: number) => {
-  if (!doctorId) return;
+  if (!doctorId) {
+    console.error('No doctor ID found');
+    return;
+  }
   
   // Prevent calling if another patient is already in consultation
   if (currentlyCalledPatient && currentlyCalledPatient !== visitId) {
@@ -457,10 +461,16 @@ const handleCallPatient = async (visitId: number) => {
     return;
   }
   
+  console.log('=== CALLING PATIENT ===');
+  console.log('Visit ID:', visitId);
+  console.log('Doctor ID:', doctorId);
+  
   setLoading(true);
   setError(null);
   try {
     const token = localStorage.getItem('token');
+    console.log('Token:', token ? 'Present' : 'Missing');
+    
     const response = await fetch("http://localhost:3001/api/doctor/visit-patient", {
       method: "POST",
       headers: { 
@@ -470,7 +480,10 @@ const handleCallPatient = async (visitId: number) => {
       body: JSON.stringify({ visitId, doctorId })
     });
 
+    console.log('Response status:', response.status);
+    
     const result = await response.json();
+    console.log('Response result:', result);
 
     if (response.ok && result.success) {
       // Set currently called patient
@@ -478,6 +491,27 @@ const handleCallPatient = async (visitId: number) => {
       setCalledPatientData(result.patient);
       
       setSelectedPatientId(visitId);
+      
+      // ============================================
+      // NEW: Store consultationId in state or localStorage
+      // ============================================
+      if (result.consultationId) {
+        console.log('Got consultation ID from backend:', result.consultationId);
+        
+        // Store it in state
+        setCurrentConsultationId(result.consultationId);
+        
+        // Also store it in localStorage for persistence
+        localStorage.setItem(`consultation_${visitId}`, result.consultationId.toString());
+        
+        // Store in a global consultation storage as well
+        localStorage.setItem('currentConsultationId', result.consultationId.toString());
+        
+        console.log('Stored consultation ID in localStorage');
+        
+        // If you have a global state for current consultation
+        // setCurrentConsultation({ id: result.consultationId, visitId });
+      }
       
       // Update patient status locally
       const updatePatientStatus = (patients: PatientVisit[]) =>
@@ -497,58 +531,61 @@ const handleCallPatient = async (visitId: number) => {
       
       toast.success(`Started consultation with ${result.patient?.PatientName || 'patient'}`);
     } else {
+      console.error('Error from backend:', result.error);
       setError(result.error || 'Failed to call patient');
+      toast.error(result.error || 'Failed to call patient');
     }
   } catch (error) {
     console.error("Call patient error:", error);
     setError("Failed to call patient. Please try again.");
+    toast.error("Failed to call patient. Please try again.");
   } finally {
     setLoading(false);
   }
 };
 
-const handleCompleteVisit = async (visitId: number) => {
-  if (!doctorId) return;
+// const handleCompleteVisit = async (visitId: number) => {
+//   if (!doctorId) return;
   
-  setLoading(true);
-  setError(null);
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ visitId, doctorId })
-    });
+//   setLoading(true);
+//   setError(null);
+//   try {
+//     const token = localStorage.getItem('token');
+//     const response = await fetch("http://localhost:3001/api/doctor/complete-visit", {
+//       method: "POST",
+//       headers: { 
+//         "Content-Type": "application/json",
+//         'Authorization': `Bearer ${token}`
+//       },
+//       body: JSON.stringify({ visitId, doctorId })
+//     });
 
-    const result = await response.json();
+//     const result = await response.json();
 
-    if (response.ok && result.success) {
-      // Clear currently called patient
-      setCurrentlyCalledPatient(null);
-      setCalledPatientData(null);
-      setSelectedPatientId(null);
+//     if (response.ok && result.success) {
+//       // Clear currently called patient
+//       setCurrentlyCalledPatient(null);
+//       setCalledPatientData(null);
+//       setSelectedPatientId(null);
       
-      // Remove from assigned patients
-      setAssignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
-      setPatientsSeenToday(prev => prev + 1);
-      setPatientsWaiting(prev => Math.max(0, prev - 1));
+//       // Remove from assigned patients
+//       setAssignedPatients(prev => prev.filter(p => p.VisitID !== visitId));
+//       setPatientsSeenToday(prev => prev + 1);
+//       setPatientsWaiting(prev => Math.max(0, prev - 1));
       
-      await fetchAllData(); // Refresh data
+//       await fetchAllData(); // Refresh data
       
-      toast.success('Consultation completed successfully');
-    } else {
-      setError(result.error || 'Failed to complete visit');
-    }
-  } catch (error) {
-    console.error("Complete visit error:", error);
-    setError("Failed to complete visit. Please try again.");
-  } finally {
-    setLoading(false);
-  }
-};
+//       toast.success('Consultation completed successfully');
+//     } else {
+//       setError(result.error || 'Failed to complete visit');
+//     }
+//   } catch (error) {
+//     console.error("Complete visit error:", error);
+//     setError("Failed to complete visit. Please try again.");
+//   } finally {
+//     setLoading(false);
+//   }
+// };
 
   const toggleCardExpansion = (visitId: number) => {
     setExpandedCards(prev =>
@@ -684,16 +721,16 @@ const getButtonConfig = () => {
   }
   
       
-      if (isInProgress && isAssignedToMe) {
-        return {
-          text: 'Complete Visit',
-          variant: 'default' as const,
-          className: 'bg-green-600 hover:bg-green-700',
-          disabled: loading,
-          onClick: handleCompleteVisit,
-          icon: <CheckCircle className="size-3 mr-1" />
-        };
-      }
+if (isInProgress && isAssignedToMe) {
+  return {
+    text: 'In Consultation',
+    variant: 'outline' as const,
+    className: 'border-purple-300 text-purple-700 bg-purple-50',
+    disabled: true,
+    onClick: null,
+    icon: <User className="size-3 mr-1" />
+  };
+}
       
       if (canClaim && !isAssignedToOtherDoctor) {
         return {
@@ -1090,16 +1127,11 @@ const getButtonConfig = () => {
 >
   Go to Consultation
 </Button> */}
-        <Button
-          variant="default"
-          size="sm"
-          className="bg-red-600 hover:bg-red-700"
-          onClick={() => handleCompleteVisit(currentlyCalledPatient)}
-          disabled={loading}
-        >
-          Complete Visit
-        </Button>
-      </div>
+  <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">
+    <User className="size-3 mr-1" />
+    In Consultation
+  </Badge>
+</div>
     </div>
   </div>
 )}

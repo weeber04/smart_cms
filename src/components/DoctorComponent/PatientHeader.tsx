@@ -64,15 +64,18 @@ export function PatientHeader({
           </div>
           
           <div className="flex items-center gap-3">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={onViewHistory}
-              className="flex items-center gap-2"
-            >
-              <History className="size-4" />
-              History
-            </Button>
+<Button 
+  variant="outline" 
+  size="sm"
+  onClick={() => {
+    console.log('History button clicked!');
+    onViewHistory();
+  }}
+  className="flex items-center gap-2"
+>
+  <History className="size-4" />
+  History
+</Button>
             <Button 
               variant="outline" 
               size="sm"

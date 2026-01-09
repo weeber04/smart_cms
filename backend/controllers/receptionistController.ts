@@ -1083,3 +1083,108 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     });
   }
 };
+
+// receptionistController.ts
+export const callPatientToBilling = async (req: Request, res: Response) => {
+  const { visitId } = req.body;
+
+  if (!visitId) {
+    return res.status(400).json({ 
+      success: false,
+      error: "Missing visitId" 
+    });
+  }
+
+  try {
+    await db.query('START TRANSACTION');
+    
+    // Update QueueStatus from 'waiting' to 'in-progress'
+    const [result]: any = await db.query(`
+      UPDATE patient_visit 
+      SET 
+        QueueStatus = 'in-progress',
+        CalledTime = NOW(),
+        UpdatedAt = NOW()
+      WHERE VisitID = ? 
+        AND VisitStatus = 'to-be-billed'
+        AND QueueStatus = 'waiting'
+    `, [visitId]);
+
+    if (result.affectedRows === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ 
+        success: false,
+        error: "Visit not found or not in correct status" 
+      });
+    }
+
+    await db.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: "Patient called to billing",
+      visitId: visitId,
+      newQueueStatus: 'in-progress'
+    });
+
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error("Call patient to billing error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to call patient to billing"
+    });
+  }
+};
+
+// receptionistController.ts
+export const goToBilling = async (req: Request, res: Response) => {
+  const { visitId } = req.body;
+
+  if (!visitId) {
+    return res.status(400).json({ 
+      success: false,
+      error: "Missing visitId" 
+    });
+  }
+
+  try {
+    await db.query('START TRANSACTION');
+    
+    // Update VisitStatus to something like 'payment-processing' or keep as 'to-be-billed'
+    const [result]: any = await db.query(`
+      UPDATE patient_visit 
+      SET 
+        VisitStatus = 'in-payment',  // You might want to add this to your ENUM
+        UpdatedAt = NOW()
+      WHERE VisitID = ? 
+        AND VisitStatus = 'to-be-billed'
+        AND QueueStatus = 'in-progress'
+    `, [visitId]);
+
+    if (result.affectedRows === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ 
+        success: false,
+        error: "Visit not found or not in correct status" 
+      });
+    }
+
+    await db.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: "Patient at billing counter",
+      visitId: visitId,
+      newVisitStatus: 'in-payment'
+    });
+
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error("Go to billing error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to update billing status"
+    });
+  }
+};

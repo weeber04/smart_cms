@@ -38,7 +38,16 @@ import {
   getCalledPatients,
   getActiveConsultation,
   completeConsultation,
-  saveConsultationForm
+  saveConsultationForm,
+  savePrescription,
+  getPatientPrescriptions,
+  createFollowUp,
+  getActiveConsultationByPatientDoctor,
+updateConsultation,
+  getPatientVisitsD,
+  getPatientConsultationsD,
+  getPatientPrescriptionsD,
+  getPatientAllergiesD
 
   // Add these to your doctorRoutes.ts
 
@@ -50,6 +59,15 @@ const router = express.Router();
 // Apply authentication middleware to ALL doctor routes
 router.use(verifyToken);
 router.use(requireRole('doctor'));
+
+
+router.get('/patient/:patientId/visitsD', getPatientVisitsD);
+router.get('/patient/:patientId/consultationsD', getPatientConsultationsD);
+router.get('/patient/:patientId/prescriptionsD', getPatientPrescriptionsD);
+router.get('/patient/:patientId/allergiesD', getPatientAllergiesD);
+
+router.put('/update-consultation', verifyToken, updateConsultation);
+router.get('/consultation/active/:patientId/:doctorId', getActiveConsultationByPatientDoctor);
 
 // In doctorRoutes.ts
 router.get('/active-consultation/:doctorId', getActiveConsultation);
@@ -85,10 +103,6 @@ router.post("/visit-patient", visitPatient);
 router.post("/complete-visit", completeVisit);
 router.post("/consultation", saveConsultation);
 
-// Prescriptions
-router.post("/prescription", createPrescription);
-router.get("/prescriptions/:doctorId", getRecentPrescriptions);
-
 // Follow-up
 router.post("/follow-up", scheduleFollowUp);
 router.post("/claim-patient", claimPatient);
@@ -121,5 +135,18 @@ router.post('/save-consultation-full', saveConsultationFull); // Keep for backwa
 // Queue and appointments for consultation tab
 router.get('/consultation-queue/:doctorId', getConsultationQueue);
 router.get('/all-today-appointments/:doctorId', getAllTodayAppointments);
+
+// Add these routes to doctorRoutes.ts
+
+// Prescription routes
+router.post('/prescription/save', savePrescription); // NEW - your frontend calls this
+router.get('/patient/:patientId/prescriptions', getPatientPrescriptions); // NEW
+router.post('/prescription', createPrescription); // Keep old one for backward compatibility
+router.get('/prescriptions/recent', getRecentPrescriptions); // Keep old one
+
+
+
+
+router.post('/create-follow-up', createFollowUp);
 
 export default router;

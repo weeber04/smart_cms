@@ -73,6 +73,20 @@ export function PrescriptionSubTab({
     }
   }, [selectedPatient]);
 
+  // Add this useEffect to check localStorage
+useEffect(() => {
+  console.log('Checking localStorage for userId:');
+  console.log('userId:', localStorage.getItem('userId'));
+  console.log('userID:', localStorage.getItem('userID'));
+  console.log('doctorId:', localStorage.getItem('doctorId'));
+  
+  // Check all localStorage items
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    console.log(`${key}: ${localStorage.getItem(key!)}`);
+  }
+}, []);
+
   const fetchDrugs = async (searchQuery = '') => {
     try {
       setIsSearching(true);
@@ -196,52 +210,98 @@ export function PrescriptionSubTab({
     setShowAllDrugs(false);
   };
 
-  const handleSavePrescription = async () => {
-    if (!selectedPatient || !consultationData?.ConsultationID) {
-      toast.error('Please complete consultation first');
-      return;
-    }
+const handleSavePrescription = async () => {
+  if (!selectedPatient || !consultationData) {
+    toast.error('Please select a patient with an active consultation');
+    return;
+  }
+  
+  if (prescriptionItems.length === 0) {
+    toast.error('Please add at least one medication to the prescription');
+    return;
+  }
+  
+  try {
+    const token = localStorage.getItem('token');
     
-    if (prescriptionItems.length === 0) {
-      toast.error('Please add at least one medication');
-      return;
-    }
+    console.log('Token:', token ? 'Present' : 'Missing');
+    console.log('PatientId:', selectedPatient.PatientID);
+    console.log('ConsultationId:', consultationData.ConsultationID);
+    console.log('Items:', prescriptionItems);
     
-    try {
-      const token = localStorage.getItem('token');
-      const doctorId = localStorage.getItem('userId');
+    // Transform data to match backend schema
+    const transformedItems = prescriptionItems.map(item => ({
+      DrugID: item.DrugID,
+      DrugName: item.DrugName,
+      Dosage: item.Dosage,
+      Frequency: item.Frequency,
+      Duration: item.Duration,
+      Instructions: item.Instructions,
+      Quantity: item.Quantity,
+      UnitPrice: item.UnitPrice
+    }));
+    
+    // DO NOT send doctorId - backend gets it from token
+    const prescriptionData = {
+      patientId: selectedPatient.PatientID,
+      consultationId: consultationData.ConsultationID,
+      items: transformedItems,
+      remarks: consultationData.TreatmentPlan || ''
+    };
+    
+    console.log('Sending prescription data (no doctorId):', JSON.stringify(prescriptionData, null, 2));
+    
+    // Show loading toast
+    const toastId = toast.loading('Saving prescription...');
+    
+    const response = await fetch('http://localhost:3001/api/doctor/prescription/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(prescriptionData)
+    });
+    
+    const result = await response.json();
+    
+    // Dismiss loading toast
+    toast.dismiss(toastId);
+    
+    console.log('Response status:', response.status);
+    console.log('Response:', result);
+    
+    if (response.ok) {
+      setPrescriptionSaved(true);
+      setTimeout(() => setPrescriptionSaved(false), 3000);
       
-      const prescriptionData = {
-        patientId: selectedPatient.PatientID,
-        doctorId: doctorId,
-        consultationId: consultationData.ConsultationID,
-        items: prescriptionItems
-      };
+      // Show success message
+      toast.success(
+        <div>
+          <div className="font-medium">Prescription Saved Successfully!</div>
+          <div className="text-sm opacity-90">Prescription ID: {result.prescriptionId}</div>
+          <div className="text-xs opacity-70">{result.itemsCount} medication(s) added</div>
+        </div>
+      );
       
-      const response = await fetch('http://localhost:3001/api/doctor/prescriptions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(prescriptionData)
-      });
+      // Ask about printing
+      setTimeout(() => {
+        if (window.confirm('Would you like to print the prescription?')) {
+          handlePrintPrescription();
+        }
+      }, 500);
       
-      if (response.ok) {
-        setPrescriptionSaved(true);
-        toast.success('Prescription saved successfully!');
-        handlePrintPrescription();
-        onPrescriptionItemsChange([]);
-        setTimeout(() => setPrescriptionSaved(false), 3000);
-      } else {
-        const error = await response.json();
-        toast.error(error.message || 'Failed to save prescription');
-      }
-    } catch (error) {
-      console.error('Error saving prescription:', error);
-      toast.error('Failed to save prescription');
+      // Clear prescription items using the prop function
+      onPrescriptionItemsChange([]);
+    } else {
+      console.error('Prescription save error:', result);
+      toast.error(result.error || 'Failed to save prescription');
     }
-  };
+  } catch (error) {
+    console.error('Error saving prescription:', error);
+    toast.error('Failed to save prescription. Please try again.');
+  }
+};
 
   const handlePrintPrescription = () => {
     const printWindow = window.open('', '_blank');
@@ -425,31 +485,32 @@ export function PrescriptionSubTab({
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-3 pt-4 border-t">
-        <Button 
-          onClick={handleSavePrescription}
-          disabled={prescriptionItems.length === 0 || !consultationData?.ConsultationID}
-          className="bg-green-600 hover:bg-green-700"
-        >
-          <CheckCircle className="size-4 mr-2" />
-          Save & Print Prescription
-        </Button>
-        
-        <Button 
-          variant="outline"
-          onClick={() => setShowConfirmPrint(true)}
-          disabled={prescriptionItems.length === 0}
-        >
-          <Printer className="size-4 mr-2" />
-          Preview & Print
-        </Button>
+{/* In your Action Buttons section */}
+<Button 
+  onClick={handleSavePrescription}
+  disabled={prescriptionItems.length === 0 || prescriptionSaved}
+  className="bg-blue-600 hover:bg-blue-700"
+>
+  <CheckCircle className="size-4 mr-2" />
+  {prescriptionSaved ? 'Saving...' : 'Save Prescription'}
+</Button>
+
+<Button 
+  variant="outline"
+  onClick={handlePrintPrescription}
+  disabled={prescriptionItems.length === 0}
+>
+  <Printer className="size-4 mr-2" />
+  Print Only
+</Button>
       </div>
       
-      {prescriptionSaved && (
-        <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm flex items-center gap-2">
-          <CheckCircle className="size-4" />
-          Prescription saved and printed successfully!
-        </div>
-      )}
+{prescriptionSaved && (
+  <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm flex items-center gap-2">
+    <CheckCircle className="size-4" />
+    Prescription saved successfully!
+  </div>
+)}
 
       {/* Add Drug Dialog - UPDATED WITH SCROLLABLE AND LIMITED VIEW */}
       <Dialog open={showAddDrug} onOpenChange={setShowAddDrug}>

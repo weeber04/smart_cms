@@ -1,5 +1,5 @@
-// ConsultationTab.tsx - COMPLETE VERSION
-import { useState, useEffect } from 'react';
+// ConsultationTab.tsx - COMPLETE UPDATED VERSION
+import { useState, useEffect, useCallback } from 'react';
 import { Stethoscope, ClipboardList, Activity, Pill, AlertCircle, CheckCircle } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { Tabs, TabsContent } from '../ui/tabs';
@@ -12,6 +12,7 @@ import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { toast } from "sonner";
 import { CompleteConsultationButton } from './CompleteConsultationButton';
+import { HistoryDialog } from './HistoryDialog';
 
 // Import new components
 import { PatientQueuePanel } from './PatientQueuePanel';
@@ -20,6 +21,7 @@ import { ConsultationForm } from './ConsultationForm';
 import { AllergiesTab } from './AllergiesTab';
 import { SummaryTab } from './SummaryTab';
 import { ConsultationTabs } from './ConsultationTabs';
+
 
 // Import types
 import type { 
@@ -41,7 +43,11 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
   const [patientAllergies, setPatientAllergies] = useState<AllergyFinding[]>([]);
   const [patientMedicalConditions, setPatientMedicalConditions] = useState<MedicalCondition[]>([]);
   const [patientVisits, setPatientVisits] = useState<PatientVisit[]>([]);
-  const [currentConsultationId, setCurrentConsultationId] = useState<number | null>(null);
+  const [currentConsultationId, setCurrentConsultationId] = useState<number | null>(() => {
+  // Try to get from localStorage on component mount
+  const storedId = localStorage.getItem('currentConsultationId');
+  return storedId ? parseInt(storedId) : null;
+});
   const [consultationProgress, setConsultationProgress] = useState(0);
   const [quickNote, setQuickNote] = useState('');
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
@@ -52,57 +58,68 @@ export function ConsultationTab({ doctorId, doctorProfile, todayAppointments, se
     consultation: false,
     allergy: false
   });
-  // In ConsultationTab.tsx, add this state
-const [showVitalHistory, setShowVitalHistory] = useState(false);
-
-  // ADD THESE STATES
+  
+  // Add these new states
+  const [showVitalHistory, setShowVitalHistory] = useState(false);
   const [canCompleteConsultation, setCanCompleteConsultation] = useState(false);
   const [isCompletingConsultation, setIsCompletingConsultation] = useState(false);
+  const [isConsultationSaved, setIsConsultationSaved] = useState(false);
+  const [isEditingConsultation, setIsEditingConsultation] = useState(false);
+  
 
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false);
   // Consultation form state
-  const [consultationForm, setConsultationForm] = useState<ConsultationFormData>({
-    chiefComplaint: '',
-    duration: '',
-    severity: 'moderate',
-    historyOfPresentIllness: '',
-    onset: '',
-    progression: '',
-    relievingFactors: '',
-    aggravatingFactors: '',
-    pastMedicalHistory: '',
-    surgicalHistory: '',
-    familyHistory: '',
-    smoking: 'none',
-    alcohol: 'none',
-    occupation: '',
-    generalReview: '',
-    cardiovascularReview: '',
-    respiratoryReview: '',
-    gastrointestinalReview: '',
-    neurologicalReview: '',
-    generalAppearance: '',
-    vitalSignsNotes: '',
-    cardiovascularExam: '',
-    respiratoryExam: '',
-    abdominalExam: '',
-    neurologicalExam: '',
-    diagnosis: '',
-    differentialDiagnosis: '',
-    diagnosisCode: '',
-    severityAssessment: 'mild',
-    treatmentPlan: '',
-    medicationPlan: '',
-    nonMedicationPlan: '',
-    followUpInstructions: '',
-    followUpDate: '',
-    patientEducation: '',
-    lifestyleAdvice: '',
-    warningSigns: '',
-    consultationNotes: '',
-    disposition: 'discharge',
-    referralNeeded: false,
-    referralNotes: '',
-  });
+// In your ConsultationTab component, initialize the form with these fields:
+const [consultationForm, setConsultationForm] = useState<ConsultationFormData>({
+  chiefComplaint: '',
+  duration: '',
+  severity: 'moderate',
+  historyOfPresentIllness: '',
+  onset: '',
+  progression: '',
+  relievingFactors: '',
+  aggravatingFactors: '',
+  pastMedicalHistory: '',
+  surgicalHistory: '',
+  familyHistory: '',
+  smoking: '',
+  alcohol: '',
+  occupation: '',
+  generalReview: '',
+  cardiovascularReview: '',
+  respiratoryReview: '',
+  gastrointestinalReview: '',
+  neurologicalReview: '',
+  generalAppearance: '',
+  vitalSignsNotes: '',
+  cardiovascularExam: '',
+  respiratoryExam: '',
+  abdominalExam: '',
+  neurologicalExam: '',
+  diagnosis: '',
+  differentialDiagnosis: '',
+  diagnosisCode: '',
+  severityAssessment: 'moderate',
+  treatmentPlan: '',
+  medicationPlan: '',
+  nonMedicationPlan: '',
+  followUpInstructions: '',
+  followUpDate: '',
+  patientEducation: '',
+  lifestyleAdvice: '',
+  warningSigns: '',
+  consultationNotes: '',
+  disposition: '',
+  referralNeeded: false,
+  referralNotes: '',
+  needsFollowUp: false,
+  followUpTime: '',
+  followUpPurpose: '',
+  
+  // Add these new fields:
+  labTestsOrdered: false,
+  referralGiven: false,
+});
   
   // Vital signs state
   const [currentVitals, setCurrentVitals] = useState<PatientVital>({
@@ -155,7 +172,10 @@ const [showVitalHistory, setShowVitalHistory] = useState(false);
       // Reset consultation state
       setActiveStep(0);
       setConsultationProgress(0);
-      setCanCompleteConsultation(false); // Reset completion state
+      setCanCompleteConsultation(false);
+      setIsConsultationSaved(false);
+      setIsEditingConsultation(false);
+      setCurrentConsultationId(null);
       
       // Reset forms
       setCurrentVitals({
@@ -184,50 +204,137 @@ const [showVitalHistory, setShowVitalHistory] = useState(false);
     }
   }, [doctorId]);
 
-  const resetConsultationForm = () => {
-    setConsultationForm({
-      chiefComplaint: '',
-      duration: '',
-      severity: 'moderate',
-      historyOfPresentIllness: '',
-      onset: '',
-      progression: '',
-      relievingFactors: '',
-      aggravatingFactors: '',
-      pastMedicalHistory: '',
-      surgicalHistory: '',
-      familyHistory: '',
-      smoking: 'none',
-      alcohol: 'none',
-      occupation: '',
-      generalReview: '',
-      cardiovascularReview: '',
-      respiratoryReview: '',
-      gastrointestinalReview: '',
-      neurologicalReview: '',
-      generalAppearance: '',
-      vitalSignsNotes: '',
-      cardiovascularExam: '',
-      respiratoryExam: '',
-      abdominalExam: '',
-      neurologicalExam: '',
-      diagnosis: '',
-      differentialDiagnosis: '',
-      diagnosisCode: '',
-      severityAssessment: 'mild',
-      treatmentPlan: '',
-      medicationPlan: '',
-      nonMedicationPlan: '',
-      followUpInstructions: '',
-      followUpDate: '',
-      patientEducation: '',
-      lifestyleAdvice: '',
-      warningSigns: '',
-      consultationNotes: '',
-      disposition: 'discharge',
-      referralNeeded: false,
-      referralNotes: '',
-    });
+  // Fetch saved consultation if we have a consultationId
+  useEffect(() => {
+    if (currentConsultationId && selectedPatient) {
+      fetchSavedConsultation(currentConsultationId);
+    }
+  }, [currentConsultationId]);
+
+const resetConsultationForm = () => {
+  setConsultationForm({
+    chiefComplaint: '',
+    duration: '',
+    severity: 'moderate',
+    historyOfPresentIllness: '',
+    onset: '',
+    progression: '',
+    relievingFactors: '',
+    aggravatingFactors: '',
+    pastMedicalHistory: '',
+    surgicalHistory: '',
+    familyHistory: '',
+    smoking: 'none',
+    alcohol: 'none',
+    occupation: '',
+    generalReview: '',
+    cardiovascularReview: '',
+    respiratoryReview: '',
+    gastrointestinalReview: '',
+    neurologicalReview: '',
+    generalAppearance: '',
+    vitalSignsNotes: '',
+    cardiovascularExam: '',
+    respiratoryExam: '',
+    abdominalExam: '',
+    neurologicalExam: '',
+    diagnosis: '',
+    differentialDiagnosis: '',
+    diagnosisCode: '',
+    severityAssessment: 'mild',
+    treatmentPlan: '',
+    medicationPlan: '',
+    nonMedicationPlan: '',
+    followUpInstructions: '',
+    followUpDate: '',
+    patientEducation: '',
+    lifestyleAdvice: '',
+    warningSigns: '',
+    consultationNotes: '',
+    disposition: 'discharge',
+    referralNeeded: false,
+    referralNotes: '',
+    needsFollowUp: false,
+    followUpTime: '',
+    followUpPurpose: '',
+    
+    // ADD THESE TWO FIELDS:
+    labTestsOrdered: false,
+    referralGiven: false,
+  });
+};
+  // NEW FUNCTION: Fetch saved consultation data
+  const fetchSavedConsultation = async (consultationId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/doctor/consultation/${consultationId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const consultationData = await response.json();
+        console.log('Fetched consultation data:', consultationData);
+        
+        // Update form with fetched data
+// In the fetchSavedConsultation function, update the form setting:
+setConsultationForm(prev => ({
+  ...prev,
+  // Map database fields to form fields
+  chiefComplaint: consultationData.ChiefComplaint || '',
+  historyOfPresentIllness: consultationData.HistoryOfPresentIllness || '',
+  diagnosis: consultationData.Diagnosis || '',
+  diagnosisCode: consultationData.DiagnosisCode || '',
+  treatmentPlan: consultationData.TreatmentPlan || '',
+  consultationNotes: consultationData.ConsultationNotes || '',
+  followUpInstructions: consultationData.FollowUpInstructions || '',
+  followUpDate: consultationData.FollowUpDate ? consultationData.FollowUpDate.split('T')[0] : '',
+  severityAssessment: consultationData.SeverityAssessment || 'mild',
+  needsFollowUp: consultationData.NeedsFollowUp || false,
+  followUpTime: consultationData.FollowUpTime || '',
+  followUpPurpose: consultationData.FollowUpPurpose || '',
+  medicationPlan: consultationData.MedicationPlan || '',
+  nonMedicationPlan: consultationData.NonMedicationPlan || '',
+  patientEducation: consultationData.PatientEducation || '',
+  lifestyleAdvice: consultationData.LifestyleAdvice || '',
+  warningSigns: consultationData.WarningSigns || '',
+  disposition: consultationData.Disposition || 'discharge',
+  referralNeeded: consultationData.ReferralNeeded || false,
+  referralNotes: consultationData.ReferralNotes || '',
+  pastMedicalHistory: consultationData.PastMedicalHistory || '',
+  familyHistory: consultationData.FamilyHistory || '',
+  differentialDiagnosis: consultationData.DifferentialDiagnosis || '',
+  
+  // ADD THESE TWO FIELDS:
+  labTestsOrdered: consultationData.LabTestsOrdered || false,
+  referralGiven: consultationData.ReferralGiven || false,
+}));
+        
+        // Parse physical exam findings if they exist
+        if (consultationData.PhysicalExamFindings) {
+          try {
+            const examFindings = JSON.parse(consultationData.PhysicalExamFindings);
+            setConsultationForm(prev => ({
+              ...prev,
+              generalAppearance: examFindings.generalAppearance || '',
+              cardiovascularExam: examFindings.cardiovascular || '',
+              respiratoryExam: examFindings.respiratory || '',
+              abdominalExam: examFindings.abdominal || '',
+              neurologicalExam: examFindings.neurological || ''
+            }));
+          } catch (e) {
+            console.error('Error parsing physical exam findings:', e);
+          }
+        }
+        
+        setIsConsultationSaved(true);
+        setIsEditingConsultation(false);
+      }
+    } catch (error) {
+      console.error("Error fetching consultation:", error);
+    }
   };
 
   const fetchPatientVitals = async (patientId: number) => {
@@ -365,24 +472,30 @@ const [showVitalHistory, setShowVitalHistory] = useState(false);
     }
   };
 
+  // UPDATED: handleSaveConsultation
 const handleSaveConsultation = async () => {
   if (!selectedPatient || !doctorId) {
     toast.error('Please select a patient first');
     return;
   }
 
+  console.log('=== FRONTEND: Starting save consultation ===');
+  console.log('Patient ID:', selectedPatient);
+  console.log('Doctor ID:', doctorId);
+  
   setSavingStates(prev => ({ ...prev, consultation: true }));
   
   try {
     const token = localStorage.getItem('token');
+    console.log('Token exists:', !!token);
     
-    // Create consultation form data with simplified test data
-    const testData = {
+    // Prepare consultation data - NO consultationId needed!
+    const consultationData = {
       patientId: selectedPatient,
       doctorId: doctorId,
-      chiefComplaint: consultationForm.chiefComplaint || "Test complaint",
+      chiefComplaint: consultationForm.chiefComplaint || "",
       historyOfPresentIllness: consultationForm.historyOfPresentIllness || "",
-      diagnosis: consultationForm.diagnosis || "Test diagnosis",
+      diagnosis: consultationForm.diagnosis || "",
       diagnosisCode: consultationForm.diagnosisCode || "",
       treatmentPlan: consultationForm.treatmentPlan || "",
       consultationNotes: consultationForm.consultationNotes || "",
@@ -395,10 +508,27 @@ const handleSaveConsultation = async () => {
         abdominal: consultationForm.abdominalExam || "",
         neurological: consultationForm.neurologicalExam || ""
       }),
-      severityAssessment: consultationForm.severityAssessment || "moderate"
+      severityAssessment: consultationForm.severityAssessment || "moderate",
+      needsFollowUp: consultationForm.needsFollowUp || false,
+      followUpTime: consultationForm.followUpTime || "",
+      followUpPurpose: consultationForm.followUpPurpose || "",
+      medicationPlan: consultationForm.medicationPlan || "",
+      nonMedicationPlan: consultationForm.nonMedicationPlan || "",
+      patientEducation: consultationForm.patientEducation || "",
+      lifestyleAdvice: consultationForm.lifestyleAdvice || "",
+      warningSigns: consultationForm.warningSigns || "",
+      disposition: consultationForm.disposition || "",
+      referralNeeded: consultationForm.referralNeeded || false,
+      referralNotes: consultationForm.referralNotes || "",
+      pastMedicalHistory: consultationForm.pastMedicalHistory || "",
+      familyHistory: consultationForm.familyHistory || "",
+      differentialDiagnosis: consultationForm.differentialDiagnosis || "",
+      labTestsOrdered: consultationForm.labTestsOrdered || false,
+      referralGiven: consultationForm.referralGiven || false
     };
 
-    console.log('Sending test data:', testData);
+    console.log('Sending request to backend with data:', consultationData);
+    console.log('Endpoint: http://localhost:3001/api/doctor/save-consultation-form');
 
     const response = await fetch("http://localhost:3001/api/doctor/save-consultation-form", {
       method: "POST",
@@ -406,18 +536,31 @@ const handleSaveConsultation = async () => {
         "Content-Type": "application/json",
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify(testData)
+      body: JSON.stringify(consultationData)
     });
 
     console.log('Response status:', response.status);
+    console.log('Response status text:', response.statusText);
     
     const result = await response.json();
     console.log('Response result:', result);
 
     if (response.ok) {
+      console.log('Save successful! Consultation ID:', result.consultationId);
+      
       if (result.consultationId) {
         setCurrentConsultationId(result.consultationId);
         setCanCompleteConsultation(true);
+        setIsConsultationSaved(true);
+        setIsEditingConsultation(false);
+        
+        // Fetch the saved data to populate form
+        fetchSavedConsultation(result.consultationId);
+      }
+      
+      // If follow-up is needed, schedule the appointment
+      if (consultationForm.needsFollowUp && consultationForm.followUpDate && consultationForm.followUpTime) {
+        await createFollowUpAppointment(consultationForm.followUpDate, consultationForm.followUpTime, result.consultationId);
       }
       
       setSuccessMessage('Consultation form has been successfully saved.');
@@ -425,21 +568,172 @@ const handleSaveConsultation = async () => {
       setShowSuccessDialog(true);
       setConsultationProgress(80);
       
+      toast.success('Consultation saved successfully!');
+      
     } else {
       console.error('Server error details:', result);
       toast.error(result.error || 'Failed to save consultation form');
-      if (result.message) {
-        console.error('Error message:', result.message);
-        console.error('SQL Message:', result.sqlMessage);
-      }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Network or client error:", error);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
     toast.error("Failed to save consultation form. Please try again.");
   } finally {
     setSavingStates(prev => ({ ...prev, consultation: false }));
   }
 };
+
+  // NEW FUNCTION: handleUpdateConsultation
+const handleUpdateConsultation = async () => {
+  if (!currentConsultationId || !selectedPatient || !doctorId) {
+    toast.error('No consultation to update');
+    return;
+  }
+
+  setSavingStates(prev => ({ ...prev, consultation: true }));
+  
+  try {
+    const token = localStorage.getItem('token');
+    
+    const updateData = {
+      consultationId: currentConsultationId,
+      patientId: selectedPatient,
+      doctorId: doctorId,
+      chiefComplaint: consultationForm.chiefComplaint || "",
+      historyOfPresentIllness: consultationForm.historyOfPresentIllness || "",
+      diagnosis: consultationForm.diagnosis || "",
+      diagnosisCode: consultationForm.diagnosisCode || "",
+      treatmentPlan: consultationForm.treatmentPlan || "",
+      consultationNotes: consultationForm.consultationNotes || "",
+      followUpInstructions: consultationForm.followUpInstructions || "",
+      followUpDate: consultationForm.followUpDate || null,
+      physicalExamFindings: JSON.stringify({
+        generalAppearance: consultationForm.generalAppearance || "",
+        cardiovascular: consultationForm.cardiovascularExam || "",
+        respiratory: consultationForm.respiratoryExam || "",
+        abdominal: consultationForm.abdominalExam || "",
+        neurological: consultationForm.neurologicalExam || ""
+      }),
+      severityAssessment: consultationForm.severityAssessment || "moderate",
+      needsFollowUp: consultationForm.needsFollowUp || false,
+      followUpTime: consultationForm.followUpTime || "",
+      followUpPurpose: consultationForm.followUpPurpose || "",
+      medicationPlan: consultationForm.medicationPlan || "",
+      nonMedicationPlan: consultationForm.nonMedicationPlan || "",
+      patientEducation: consultationForm.patientEducation || "",
+      lifestyleAdvice: consultationForm.lifestyleAdvice || "",
+      warningSigns: consultationForm.warningSigns || "",
+      disposition: consultationForm.disposition || "",
+      referralNeeded: consultationForm.referralNeeded || false,
+      referralNotes: consultationForm.referralNotes || "",
+      pastMedicalHistory: consultationForm.pastMedicalHistory || "",
+      familyHistory: consultationForm.familyHistory || "",
+      differentialDiagnosis: consultationForm.differentialDiagnosis || "",
+      labTestsOrdered: consultationForm.labTestsOrdered || false,
+      referralGiven: consultationForm.referralGiven || false
+    };
+
+    console.log('Updating consultation with:', updateData);
+
+    const response = await fetch("http://localhost:3001/api/doctor/update-consultation", {
+      method: "PUT",
+      headers: { 
+        "Content-Type": "application/json",
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(updateData)
+    });
+
+    const result = await response.json();
+    console.log('Update response:', result);
+
+    if (response.ok) {
+      toast.success('Consultation updated successfully');
+      setIsConsultationSaved(true);
+      setIsEditingConsultation(false);
+      
+      // Update follow-up appointment if needed
+      if (consultationForm.needsFollowUp && consultationForm.followUpDate && consultationForm.followUpTime) {
+        await updateFollowUpAppointment(consultationForm.followUpDate, consultationForm.followUpTime);
+      }
+      
+      // Show success dialog
+      setSuccessMessage('Consultation has been successfully updated.');
+      setSuccessType('consultation');
+      setShowSuccessDialog(true);
+      
+      // Refresh the consultation data
+      fetchSavedConsultation(currentConsultationId);
+    } else {
+      toast.error(result.error || 'Failed to update consultation');
+    }
+  } catch (error) {
+    console.error("Update consultation error:", error);
+    toast.error("Failed to update consultation. Please try again.");
+  } finally {
+    setSavingStates(prev => ({ ...prev, consultation: false }));
+  }
+};
+
+  // NEW FUNCTION: handleEditConsultation (for the button)
+  const handleEditConsultation = () => {
+    setIsEditingConsultation(true);
+    setIsConsultationSaved(false);
+    setActiveStep(0); // Reset to first step for editing
+  };
+
+  // Helper function to create follow-up appointment
+  const createFollowUpAppointment = async (followUpDate: string, followUpTime: string, consultationId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      const [hours, minutes] = followUpTime.split(':').map(Number);
+      const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+      
+      const totalMinutes = hours * 60 + minutes + 30;
+      const endHours = Math.floor(totalMinutes / 60);
+      const endMinutes = totalMinutes % 60;
+      const endTime = `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}:00`;
+      
+      const response = await fetch("http://localhost:3001/api/doctor/schedule-follow-up", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          patientId: selectedPatient,
+          doctorId: doctorId,
+          consultationId: consultationId,
+          appointmentDateTime: `${followUpDate} ${startTime.split(':')[0]}:00:00`,
+          startTime: startTime,
+          endTime: endTime,
+          purpose: consultationForm.followUpPurpose || "Follow-up consultation",
+          notes: consultationForm.followUpInstructions || "Follow-up appointment scheduled by doctor",
+          createdBy: doctorId
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        console.log('Follow-up appointment created successfully:', result);
+        toast.success(`Follow-up scheduled for ${followUpDate} at ${followUpTime}`);
+      } else {
+        console.warn('Follow-up scheduling failed:', result);
+        toast.warning('Consultation saved but follow-up scheduling failed');
+      }
+    } catch (error) {
+      console.warn('Failed to create follow-up appointment:', error);
+      toast.warning('Consultation saved but follow-up scheduling failed');
+    }
+  };
+
+  const updateFollowUpAppointment = async (followUpDate: string, followUpTime: string) => {
+    // Implement if you have API for updating appointments
+    console.log('Update follow-up appointment logic would go here');
+  };
 
   const handleCompleteConsultation = async () => {
     if (!currentConsultationId || !selectedPatient || !doctorId) {
@@ -475,6 +769,8 @@ const handleSaveConsultation = async () => {
         setSelectedPatient(null);
         setCurrentConsultationId(null);
         setCanCompleteConsultation(false);
+        setIsConsultationSaved(false);
+        setIsEditingConsultation(false);
         resetConsultationForm();
         setActiveStep(0);
         
@@ -537,14 +833,12 @@ const handleSaveConsultation = async () => {
       const result = await response.json();
 
       if (response.ok) {
-        // SHOW SUCCESS DIALOG
         setSuccessMessage(`Allergy to "${allergyData.AllergyName}" has been recorded in the patient's medical history.`);
         setSuccessType('allergy');
         setShowSuccessDialog(true);
         
         fetchPatientAllergies(selectedPatient);
         
-        // Reset allergy form
         setAllergyForm({
           AllergyName: '',
           Reaction: '',
@@ -580,15 +874,12 @@ const handleSaveConsultation = async () => {
     try {
       const token = localStorage.getItem('token');
       
-      // Parse blood pressure
       const bpParts = currentVitals.BloodPressure.split('/');
       const systolic = bpParts[0]?.trim();
       const diastolic = bpParts[1]?.trim();
 
-      // Get or create consultation for vital signs
       let consultationId = null;
       
-      // Try to get active consultation
       const activeVisitRes = await fetch(`http://localhost:3001/api/doctor/patient/${selectedPatient}/active-consultation`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -601,7 +892,6 @@ const handleSaveConsultation = async () => {
         consultationId = visitData.ConsultationID;
       }
 
-      // Prepare vital signs data
       const vitalData = {
         consultationId: consultationId,
         patientId: selectedPatient,
@@ -620,7 +910,6 @@ const handleSaveConsultation = async () => {
         notes: currentVitals.Notes || ''
       };
 
-      // Save vital signs
       const response = await fetch("http://localhost:3001/api/doctor/save-vital-signs-consultation", {
         method: "POST",
         headers: { 
@@ -633,15 +922,12 @@ const handleSaveConsultation = async () => {
       const result = await response.json();
 
       if (response.ok) {
-        // SHOW SUCCESS DIALOG
         setSuccessMessage('Vital signs have been successfully recorded and saved to the patient\'s medical record.');
         setSuccessType('vitals');
         setShowSuccessDialog(true);
         
-        // Refresh vitals list
         fetchPatientVitals(selectedPatient);
         
-        // Reset form
         setCurrentVitals({
           TakenBy: doctorId,
           TakenAt: new Date().toISOString(),
@@ -657,7 +943,6 @@ const handleSaveConsultation = async () => {
           Notes: ''
         });
         
-        // Auto-progress to next step
         if (consultationProgress < 40) {
           setConsultationProgress(40);
           setActiveStep(2);
@@ -722,12 +1007,13 @@ const handleSaveConsultation = async () => {
     }
   };
 
-  const handleFormChange = (field: string, value: any) => {
-    setConsultationForm(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
+// In ConsultationTab.tsx, wrap handleFormChange with useCallback:
+const handleFormChange = useCallback((field: keyof ConsultationFormData, value: any) => {
+  setConsultationForm(prev => ({
+    ...prev,
+    [field]: value
+  }));
+}, []);
 
   const formatVitalForDisplay = (vital: PatientVital) => {
     return {
@@ -748,6 +1034,8 @@ const handleSaveConsultation = async () => {
     };
   };
 
+
+
   const SuccessDialog = () => {
     const getDialogContent = () => {
       switch (successType) {
@@ -762,8 +1050,10 @@ const handleSaveConsultation = async () => {
         case 'consultation':
           return {
             icon: <Stethoscope className="h-12 w-12 text-blue-600" />,
-            title: "Consultation Completed",
-            message: "Consultation has been saved and patient is ready for prescriptions.",
+            title: isConsultationSaved ? "Consultation Updated" : "Consultation Saved",
+            message: isConsultationSaved 
+              ? "Consultation has been updated successfully." 
+              : "Consultation has been saved and patient is ready for prescriptions.",
             bgColor: "bg-blue-100",
             textColor: "text-blue-800"
           };
@@ -802,7 +1092,6 @@ const handleSaveConsultation = async () => {
             <Button 
               onClick={() => {
                 setShowSuccessDialog(false);
-                // Auto-navigate based on success type
                 if (successType === 'vitals') {
                   setActiveSubTab('consultation');
                 } else if (successType === 'consultation') {
@@ -832,14 +1121,16 @@ const handleSaveConsultation = async () => {
       <div className="lg:col-span-2 space-y-6">
         {/* Patient Header Banner */}
         {selectedPatient && selectedPatientData && (
-          <PatientHeader 
-            patientData={selectedPatientData}
-            allergiesCount={patientAllergies.filter(a => a.Status === 'active').length}
-            onViewHistory={() => {/* Implement history view */}}
-            onAddQuickNote={() => setShowQuickNotes(true)}
-          />
+<PatientHeader 
+  patientData={selectedPatientData}
+  allergiesCount={patientAllergies.filter(a => a.Status === 'active').length}
+  onViewHistory={() => {
+    console.log('Setting showHistoryDialog to true');
+    setShowHistoryDialog(true);
+  }}
+  onAddQuickNote={() => setShowQuickNotes(true)}
+/>
         )}
-
 
         {/* Main Content Tabs */}
         {selectedPatient && selectedPatientData ? (
@@ -853,29 +1144,51 @@ const handleSaveConsultation = async () => {
               <Tabs value={activeSubTab} onValueChange={(value: string) => setActiveSubTab(value as any)}>
                 {/* CONSULTATION TAB */}
                 <TabsContent value="consultation" className="space-y-6">
-                  <ConsultationForm 
-                    formData={consultationForm}
-                    onFormChange={handleFormChange}
-                    activeStep={activeStep}
-                    consultationSteps={consultationSteps}
-                    onPrevStep={prevStep}
-                    onNextStep={nextStep}
-                    onSaveConsultation={handleSaveConsultation}
-                    onNavigateToVitals={() => setActiveSubTab('vitals')}
-                    isSaving={savingStates.consultation}
-                  />
+<ConsultationForm 
+  formData={consultationForm}
+  onFormChange={handleFormChange}
+  activeStep={activeStep}
+  consultationSteps={consultationSteps}
+  onPrevStep={prevStep}
+  onNextStep={nextStep}
+  onSaveConsultation={handleSaveConsultation}
+  onUpdateConsultation={handleUpdateConsultation} // Make sure this is passed
+  onNavigateToVitals={() => setActiveSubTab('vitals')}
+  isSaving={savingStates.consultation}
+  doctorId={doctorId}
+  isConsultationSaved={isConsultationSaved && !isEditingConsultation}
+  consultationId={currentConsultationId}
+/>
                   
-                  {/* Complete Button at bottom of Consultation Tab */}
-                  <div className="flex justify-end pt-4 border-t">
-                    <CompleteConsultationButton
-                      consultationId={currentConsultationId}
-                      patientId={selectedPatient}
-                      doctorId={doctorId}
-                      isCompleting={isCompletingConsultation}
-                      onComplete={handleCompleteConsultation}
-                      canComplete={canCompleteConsultation}
-                    />
-                  </div>
+                  {/* Add Edit Button when consultation is saved but not in edit mode */}
+                  {isConsultationSaved && !isEditingConsultation && (
+                    <div className="flex justify-between items-center pt-4 border-t">
+
+                      
+                      <CompleteConsultationButton
+                        consultationId={currentConsultationId}
+                        patientId={selectedPatient}
+                        doctorId={doctorId}
+                        isCompleting={isCompletingConsultation}
+                        onComplete={handleCompleteConsultation}
+                        canComplete={canCompleteConsultation}
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Complete Button when not saved or in edit mode */}
+                  {(!isConsultationSaved || isEditingConsultation) && (
+                    <div className="flex justify-end pt-4 border-t">
+                      <CompleteConsultationButton
+                        consultationId={currentConsultationId}
+                        patientId={selectedPatient}
+                        doctorId={doctorId}
+                        isCompleting={isCompletingConsultation}
+                        onComplete={handleCompleteConsultation}
+                        canComplete={canCompleteConsultation}
+                      />
+                    </div>
+                  )}
                 </TabsContent>
 
                 {/* VITALS TAB */}
@@ -1042,72 +1355,72 @@ const handleSaveConsultation = async () => {
                     </div>
                   </div>
                   
-{patientVitals.length > 0 && (
-  <div className="pt-6 border-t">
-    <div className="flex items-center justify-between mb-4">
-      <h3 className="text-lg font-semibold">Recent Vital Signs History</h3>
-      <button
-        onClick={() => setShowVitalHistory(!showVitalHistory)}
-        className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
-      >
-        {showVitalHistory ? 'Hide History' : 'Show History'}
-        <svg
-          className={`w-4 h-4 transition-transform ${showVitalHistory ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-    </div>
-    
-    {showVitalHistory && (
-      <div className="space-y-3 animate-fadeIn">
-        {patientVitals.slice(0, 3).map((vital, index) => {
-          const formattedVital = formatVitalForDisplay(vital);
-          return (
-            <Card key={index}>
-              <CardContent className="p-4">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{formattedVital.date}</p>
-                  </div>
-                  <Badge variant="outline" className="text-xs">
-                    Recorded
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div className="text-center">
-                    <p className="text-xs text-gray-600">BP</p>
-                    <p className="text-lg font-semibold text-gray-900">{formattedVital.bp}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-gray-600">Temp</p>
-                    <p className="text-lg font-semibold text-gray-900">{formattedVital.temp}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-gray-600">HR</p>
-                    <p className="text-lg font-semibold text-gray-900">{formattedVital.pulse}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-gray-600">SpO₂</p>
-                    <p className="text-lg font-semibold text-gray-900">{formattedVital.spo2}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-gray-600">Resp.</p>
-                    <p className="text-lg font-semibold text-gray-900">{formattedVital.respiratory}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    )}
-  </div>
-)}
+                  {patientVitals.length > 0 && (
+                    <div className="pt-6 border-t">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold">Recent Vital Signs History</h3>
+                        <button
+                          onClick={() => setShowVitalHistory(!showVitalHistory)}
+                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+                        >
+                          {showVitalHistory ? 'Hide History' : 'Show History'}
+                          <svg
+                            className={`w-4 h-4 transition-transform ${showVitalHistory ? 'rotate-180' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      </div>
+                      
+                      {showVitalHistory && (
+                        <div className="space-y-3 animate-fadeIn">
+                          {patientVitals.slice(0, 3).map((vital, index) => {
+                            const formattedVital = formatVitalForDisplay(vital);
+                            return (
+                              <Card key={index}>
+                                <CardContent className="p-4">
+                                  <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                      <p className="text-sm font-medium text-gray-900">{formattedVital.date}</p>
+                                    </div>
+                                    <Badge variant="outline" className="text-xs">
+                                      Recorded
+                                    </Badge>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-600">BP</p>
+                                      <p className="text-lg font-semibold text-gray-900">{formattedVital.bp}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-600">Temp</p>
+                                      <p className="text-lg font-semibold text-gray-900">{formattedVital.temp}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-600">HR</p>
+                                      <p className="text-lg font-semibold text-gray-900">{formattedVital.pulse}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-600">SpO₂</p>
+                                      <p className="text-lg font-semibold text-gray-900">{formattedVital.spo2}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-xs text-gray-600">Resp.</p>
+                                      <p className="text-lg font-semibold text-gray-900">{formattedVital.respiratory}</p>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   {/* Complete Button at bottom of Vitals Tab */}
                   <div className="flex justify-end pt-4 border-t">
@@ -1123,30 +1436,45 @@ const handleSaveConsultation = async () => {
                 </TabsContent>
 
                 {/* PRESCRIPTION TAB */}
-                <TabsContent value="prescription" className="space-y-6">
-                  <PrescriptionSubTab 
-                    selectedPatient={selectedPatientData}
-                    consultationData={{
-                      ConsultationID: currentConsultationId,
-                      Diagnosis: consultationForm.diagnosis,
-                      TreatmentPlan: consultationForm.treatmentPlan
-                    }}
-                    prescriptionItems={prescriptionItems}
-                    onPrescriptionItemsChange={setPrescriptionItems}
-                  />
-                  
-                  {/* Complete Button at bottom of Prescription Tab */}
-                  <div className="flex justify-end pt-4 border-t">
-                    <CompleteConsultationButton
-                      consultationId={currentConsultationId}
-                      patientId={selectedPatient}
-                      doctorId={doctorId}
-                      isCompleting={isCompletingConsultation}
-                      onComplete={handleCompleteConsultation}
-                      canComplete={canCompleteConsultation}
-                    />
-                  </div>
-                </TabsContent>
+
+<TabsContent value="prescription" className="space-y-6">
+  {currentConsultationId ? (
+    <PrescriptionSubTab 
+      selectedPatient={selectedPatientData}
+      consultationData={{
+        ConsultationID: currentConsultationId,
+        Diagnosis: consultationForm.diagnosis,
+        TreatmentPlan: consultationForm.treatmentPlan
+      }}
+      prescriptionItems={prescriptionItems}
+      onPrescriptionItemsChange={setPrescriptionItems}
+    />
+  ) : (
+    <div className="text-center py-12">
+      <Pill className="size-16 mx-auto mb-4 text-gray-400" />
+      <p className="text-lg font-medium">No Active Consultation</p>
+      <p className="text-sm mt-2">Please start a consultation first</p>
+      <Button 
+        onClick={() => setActiveSubTab('consultation')}
+        className="mt-4"
+      >
+        Go to Consultation
+      </Button>
+    </div>
+  )}
+  
+  {/* Complete Button at bottom of Prescription Tab */}
+  <div className="flex justify-end pt-4 border-t">
+    <CompleteConsultationButton
+      consultationId={currentConsultationId}
+      patientId={selectedPatient}
+      doctorId={doctorId}
+      isCompleting={isCompletingConsultation}
+      onComplete={handleCompleteConsultation}
+      canComplete={canCompleteConsultation}
+    />
+  </div>
+</TabsContent>
 
                 {/* ALLERGIES TAB */}
                 <TabsContent value="allergies" className="space-y-6">
@@ -1273,6 +1601,15 @@ const handleSaveConsultation = async () => {
 
       {/* Success Dialog */}
       <SuccessDialog />
+
+        {showHistoryDialog && (
+  <HistoryDialog
+    open={showHistoryDialog}
+    onOpenChange={setShowHistoryDialog}
+    patientId={selectedPatient}
+    patientData={selectedPatientData}
+  />
+)}
     </div>
   );
 }
