@@ -31,7 +31,16 @@ import {
     // NEW: Walk-in registration
   registerWalkIn,
   callPatientToBilling,
-  goToBilling
+  goToBilling,
+  getPatientsToBill,
+  getAllBilling,
+  getBillingItems,
+  createBilling,
+  getServices,
+  createBillingForConsultation,
+  createBillingFromPatient,
+  processPaymentForBilling
+
 
 } from '../controllers/receptionistController';
 
@@ -67,9 +76,20 @@ router.get('/today-visits', getTodayVisits);
 router.post('/check-in', checkInPatient);
 router.post('/update-visit-status', updateVisitStatus);
 
-// Billing
-router.get('/billing', getBillingRecords);
+// ============ BILLING MANAGEMENT ROUTES ============
+
+router.get('/billing', getAllBilling);
+router.get('/services', getServices);
+router.post('/create-billing', createBilling);
+router.post('/update-visit-status', updateVisitStatus);
 router.post('/process-payment', processPayment);
+
+// receptionistRoutes.ts
+router.post('/create-billing-consultation', createBillingForConsultation);
+router.post('/create-billing-from-patient', createBillingFromPatient);
+router.post('/process-payment', processPaymentForBilling);
+router.get('/patients-to-bill', getPatientsToBill);
+router.get('/billing-items/:billId', getBillingItems);
 
 // Doctors
 router.get('/doctors', getDoctors);

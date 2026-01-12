@@ -76,15 +76,7 @@ export function PatientHeader({
   <History className="size-4" />
   History
 </Button>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={onAddQuickNote}
-              className="flex items-center gap-2"
-            >
-              <FileEdit className="size-4" />
-              Quick Note
-            </Button>
+
           </div>
         </div>
       </CardContent>

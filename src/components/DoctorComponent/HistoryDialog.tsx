@@ -153,14 +153,33 @@ interface Prescription {
   items?: PrescriptionItem[];
 }
 
+// If this is your current Allergy interface
 interface Allergy {
   AllergyFindingID: number;
   AllergyName: string;
-  Reaction?: string;
-  Severity?: string;
-  OnsetDate?: string;
-  Status?: string;
-  Notes?: string;
+  Reaction: string;
+  Severity: string;
+  OnsetDate: string;
+  Status: string;
+  Notes: string;
+}
+
+// Update it to include both versions
+interface Allergy {
+  AllergyFindingID: number;
+  allergyFindingID?: number; // optional camelCase version
+  AllergyName: string;
+  allergyName?: string; // optional camelCase version
+  Reaction: string;
+  reaction?: string; // optional camelCase version
+  Severity: string;
+  severity?: string; // optional camelCase version
+  OnsetDate: string;
+  onsetDate?: string; // optional camelCase version
+  Status: string;
+  status?: string; // optional camelCase version
+  Notes: string;
+  notes?: string; // optional camelCase version
 }
 
 interface HistoryDialogProps {
@@ -257,6 +276,71 @@ const extractConsultationsData = (data: any): Consultation[] => {
   console.log('No valid consultations data found, returning empty array');
   return [];
 };
+
+const extractAllergiesData = (data: any): any[] => {
+  console.log('=== EXTRACTING ALLERGIES DATA ===');
+  console.log('Input data:', data);
+  console.log('Type:', typeof data);
+  
+  // If it's already an array, return it
+  if (Array.isArray(data)) {
+    console.log('Allergies data is array, length:', data.length);
+    
+    // Check if it's the direct allergies array
+    if (data.length > 0 && data[0] && data[0].AllergyFindingID) {
+      console.log('Direct allergies array found');
+      return data;
+    }
+    
+    // Check if it's nested in another structure
+    if (data.length === 1 && typeof data[0] === 'object') {
+      // Check for common response structures
+      const possibleArrayKeys = ['allergies', 'data', 'results', 'items'];
+      for (const key of possibleArrayKeys) {
+        if (Array.isArray(data[0][key])) {
+          console.log(`Found array in nested key "${key}"`);
+          return data[0][key];
+        }
+      }
+    }
+    
+    return data;
+  }
+  
+  // If it's an object, look for an array property
+  if (data && typeof data === 'object') {
+    console.log('Allergies data is object, looking for array properties...');
+    
+    // Check for direct array property
+    const arrayProperties = Object.keys(data).filter(key => Array.isArray(data[key]));
+    
+    if (arrayProperties.length > 0) {
+      console.log(`Found array properties: ${arrayProperties.join(', ')}`);
+      // Prefer 'allergies' or 'data' if available
+      if (arrayProperties.includes('allergies')) {
+        return data.allergies;
+      }
+      if (arrayProperties.includes('data')) {
+        return data.data;
+      }
+      // Return the first array
+      return data[arrayProperties[0]];
+    }
+    
+    // Check if it's a single allergy object
+    if (data.AllergyFindingID) {
+      console.log('Single allergy object found');
+      return [data];
+    }
+    
+    // No array found, return empty
+    return [];
+  }
+  
+  console.log('No valid allergies data structure found');
+  return [];
+};
+
 
 const fetchPatientHistory = async () => {
   if (!patientId) return;
@@ -385,6 +469,27 @@ if (prescriptionsRes.ok) {
   console.log('Prescriptions status:', prescriptionsRes.status);
 }
 
+// Process allergies
+    if (allergiesRes.ok) {
+      console.log('Allergies response OK');
+      const allergiesData = await allergiesRes.json();
+      console.log('Allergies raw data:', allergiesData);
+      console.log('Allergies data type:', typeof allergiesData);
+      console.log('Is array?', Array.isArray(allergiesData));
+      
+      const processedAllergies = extractAllergiesData(allergiesData);
+      console.log('Processed allergies count:', processedAllergies.length);
+      
+      if (processedAllergies.length > 0) {
+        console.log('First processed allergy:', processedAllergies[0]);
+      }
+      
+      setAllergies(processedAllergies);
+    } else {
+      console.log('Allergies response not OK:', await allergiesRes.text());
+      console.log('Allergies status:', allergiesRes.status);
+    }
+
   } catch (error) {
     console.error('Error fetching patient history:', error);
     toast.error('Failed to load patient history');
@@ -406,140 +511,65 @@ const getPrescriptionData = (prescription: Prescription) => {
 
 const extractPrescriptionsData = (data: any): any[] => {
   console.log('=== EXTRACTING PRESCRIPTIONS DATA ===');
-  console.log('Input data:', data);
-  console.log('Type:', typeof data);
-  console.log('Is array?', Array.isArray(data));
+  console.log('Input data type:', typeof data);
   
+  // If it's already an array, return it
   if (Array.isArray(data)) {
-    console.log('Array length:', data.length);
+    console.log('Data is array, length:', data.length);
     
-    if (data.length > 0) {
-      console.log('First element:', data[0]);
-      console.log('Type of first element:', typeof data[0]);
-      console.log('Is first element array?', Array.isArray(data[0]));
-      console.log('Keys in first element:', Object.keys(data[0]));
-      
-      // Check if it's the structure we expect
-      if (data[0].PrescriptionID) {
-        console.log('Looks like a prescription object');
-        console.log('Has items?', 'items' in data[0]);
-        if (data[0].items) {
-          console.log('Items in first prescription:', data[0].items);
-          console.log('Items type:', typeof data[0].items);
-          console.log('Items is array?', Array.isArray(data[0].items));
+    // Check if it's the direct prescription array with items
+    if (data.length > 0 && data[0] && data[0].PrescriptionID) {
+      console.log('Direct prescription array found');
+      return data;
+    }
+    
+    // Check if it's nested in another structure
+    if (data.length === 1 && typeof data[0] === 'object') {
+      // Check for common response structures
+      const possibleArrayKeys = ['prescriptions', 'data', 'result', 'items'];
+      for (const key of possibleArrayKeys) {
+        if (Array.isArray(data[0][key])) {
+          console.log(`Found array in nested key "${key}"`);
+          return data[0][key];
         }
       }
     }
+    
+    return data;
   }
   
-  try {
-    // If data is already an array
-    if (Array.isArray(data)) {
-      console.log('Data is array, length:', data.length);
-      
-      // If it's an array of prescriptions (should have PrescriptionID)
-      if (data.length > 0 && data[0] && typeof data[0] === 'object') {
-        // Check if it's already in the correct format
-        if (data[0].PrescriptionID) {
-          console.log('Direct prescriptions array found:', data.length, 'items');
-          return data;
-        }
-        
-        // Check if it's an array of arrays
-        if (Array.isArray(data[0])) {
-          console.log('Array of arrays found, returning first array');
-          return data[0];
-        }
-        
-        // Check for nested structure with items
-        console.log('Examining array structure...');
-        
-        // Try to extract prescriptions from complex structure
-        const extracted: any[] = [];
-        
-        for (let i = 0; i < data.length; i++) {
-          const item = data[i];
-          
-          if (item && typeof item === 'object') {
-            // If this looks like a prescription object
-            if (item.PrescriptionID || item.id) {
-              extracted.push(item);
-            } 
-            // Check if it's an object containing prescriptions (like {0: {...}, 1: {...}})
-            else {
-              const objectKeys = Object.keys(item);
-              const prescriptionKeys = objectKeys.filter(key => 
-                item[key] && 
-                typeof item[key] === 'object' && 
-                (item[key].PrescriptionID || item[key].id)
-              );
-              
-              if (prescriptionKeys.length > 0) {
-                prescriptionKeys.forEach(key => {
-                  extracted.push(item[key]);
-                });
-              }
-            }
-          }
-        }
-        
-        if (extracted.length > 0) {
-          console.log('Extracted prescriptions from complex structure:', extracted.length);
-          return extracted;
-        }
-        
-        // Last resort: return the array as-is
-        console.log('Returning array as-is');
-        return data;
+  // If it's an object, look for an array property
+  if (data && typeof data === 'object') {
+    console.log('Data is object, looking for array properties...');
+    
+    // Check for direct array property
+    const arrayProperties = Object.keys(data).filter(key => Array.isArray(data[key]));
+    
+    if (arrayProperties.length > 0) {
+      console.log(`Found array properties: ${arrayProperties.join(', ')}`);
+      // Prefer 'prescriptions' or 'data' if available
+      if (arrayProperties.includes('prescriptions')) {
+        return data.prescriptions;
       }
-      
-      // Return empty array if no data
-      return [];
+      if (arrayProperties.includes('data')) {
+        return data.data;
+      }
+      // Return the first array
+      return data[arrayProperties[0]];
     }
     
-    // If data is an object
-    if (data && typeof data === 'object') {
-      console.log('Data is object, checking for prescription arrays...');
-      
-      // Try common keys that might contain the array
-      const possibleKeys = ['prescriptions', 'data', 'results', 'items', 'Prescriptions'];
-      
-      for (const key of possibleKeys) {
-        if (Array.isArray(data[key])) {
-          console.log(`Found array in key "${key}":`, data[key].length, 'items');
-          return data[key];
-        }
-      }
-      
-      // Check for numeric keys pattern (like {0: {...}, 1: {...}})
-      const numericKeys = Object.keys(data).filter(key => 
-        !isNaN(parseInt(key)) && data[key] && typeof data[key] === 'object'
-      );
-      
-      if (numericKeys.length > 0) {
-        console.log('Found numeric keys, extracting values...');
-        const extractedArray = numericKeys.map(key => data[key]);
-        console.log('Extracted prescriptions:', extractedArray.length);
-        return extractedArray;
-      }
-      
-      // If no array found, try to extract from values
-      const allValues = Object.values(data);
-      const arrayValues = allValues.filter(value => Array.isArray(value));
-      
-      if (arrayValues.length > 0) {
-        console.log('Found array in object values:', arrayValues[0].length, 'items');
-        return arrayValues[0];
-      }
+    // Check if it's a single prescription object
+    if (data.PrescriptionID) {
+      console.log('Single prescription object found');
+      return [data];
     }
     
-    console.log('No valid prescriptions data found, returning empty array');
-    return [];
-    
-  } catch (error) {
-    console.error('Error extracting prescriptions data:', error);
+    // No array found, return empty
     return [];
   }
+  
+  console.log('No valid data structure found');
+  return [];
 };
 
 const extractArrayData = (data: any): any[] => {
@@ -1640,7 +1670,12 @@ const renderPrescriptions = () => {
   );
 };
 
-  const renderAllergies = () => (
+const renderAllergies = () => {
+  console.log('=== RENDERING ALLERGIES DEBUG ===');
+  console.log('Allergies count:', allergies.length);
+  console.log('Allergies data:', allergies);
+  
+  return (
     <div className="space-y-4">
       {allergies.length === 0 ? (
         <Card>
@@ -1651,64 +1686,84 @@ const renderPrescriptions = () => {
           </CardContent>
         </Card>
       ) : (
-        allergies.map((allergy, index) => (
-          <Card key={allergy.AllergyFindingID || index} className="border border-gray-200">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-start gap-4">
-                  <div className={`p-3 rounded-lg ${
-                    allergy.Severity === 'severe' || allergy.Severity === 'life-threatening' 
-                      ? 'bg-red-50' 
-                      : 'bg-amber-50'
-                  }`}>
-                    <AlertTriangle className={`size-5 ${
-                      allergy.Severity === 'severe' || allergy.Severity === 'life-threatening' 
-                        ? 'text-red-600' 
-                        : 'text-amber-600'
-                    }`} />
-                  </div>
-                  <div>
-                    <h4 className="text-base font-semibold text-gray-900">{allergy.AllergyName}</h4>
-                    <div className="flex items-center gap-3 mt-1">
-                      {allergy.Severity && getSeverityBadge(allergy.Severity)}
-                      {allergy.OnsetDate && (
-                        <span className="text-sm text-gray-600">
-                          Onset: {formatSimpleDate(allergy.OnsetDate)}
-                        </span>
-                      )}
-                      {getStatusBadge(allergy.Status || 'active')}
+        allergies.map((allergy, index) => {
+          console.log(`Processing allergy ${index}:`, allergy);
+          
+          // Type-cast to 'any' to handle both PascalCase and camelCase properties
+          const allergyAny = allergy as any;
+          
+          // Extract with fallbacks - check for both PascalCase and camelCase
+          const allergyName = allergyAny.AllergyName || allergyAny.allergyName || 'Unknown Allergy';
+          const reaction = allergyAny.Reaction || allergyAny.reaction || 'Not specified';
+          const severity = allergyAny.Severity || allergyAny.severity || 'unknown';
+          const onsetDate = allergyAny.OnsetDate || allergyAny.onsetDate;
+          const status = allergyAny.Status || allergyAny.status || 'active';
+          const notes = allergyAny.Notes || allergyAny.notes;
+          
+          return (
+            <Card key={allergyAny.AllergyFindingID || allergyAny.allergyFindingID || index} className="border border-gray-200">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-start gap-4">
+                    <div className={`p-3 rounded-lg ${
+                      severity === 'severe' || severity === 'life-threatening' 
+                        ? 'bg-red-50' 
+                        : severity === 'moderate'
+                        ? 'bg-amber-50'
+                        : 'bg-green-50'
+                    }`}>
+                      <AlertTriangle className={`size-5 ${
+                        severity === 'severe' || severity === 'life-threatening' 
+                          ? 'text-red-600' 
+                          : severity === 'moderate'
+                          ? 'text-amber-600'
+                          : 'text-green-600'
+                      }`} />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-900">{allergyName}</h4>
+                      <div className="flex items-center gap-3 mt-1">
+                        {getSeverityBadge(severity)}
+                        {onsetDate && (
+                          <span className="text-sm text-gray-600">
+                            Onset: {formatSimpleDate(onsetDate)}
+                          </span>
+                        )}
+                        {getStatusBadge(status)}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-1">Reaction</p>
-                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
-                    {allergy.Reaction || 'Not specified'}
-                  </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-1">Reaction</p>
+                    <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded">
+                      {reaction}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-1">Status</p>
+                    <div className="text-sm bg-gray-50 p-2 rounded capitalize">
+                      {status}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-1">Status</p>
-                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded capitalize">
-                    {allergy.Status || 'Active'}
-                  </p>
-                </div>
-              </div>
 
-              {allergy.Notes && allergy.Notes.trim() && (
-                <div className="p-3 bg-blue-50 rounded border border-blue-200">
-                  <p className="text-sm font-medium text-blue-800 mb-1">Additional Notes</p>
-                  <p className="text-sm text-blue-700">{allergy.Notes}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))
+                {notes && notes.trim() && (
+                  <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                    <p className="text-sm font-medium text-blue-800 mb-1">Additional Notes</p>
+                    <p className="text-sm text-blue-700">{notes}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })
       )}
     </div>
   );
+};
 
   if (!open) return null;
 

@@ -18,10 +18,11 @@ import { RecentMedicalRecords } from './RecentMedicalRecords';
 import { useAuth } from '../../contexts/AuthContext'; 
 // ADD THIS IMPORT:
 import { PrescriptionTab } from './PrescriptionTab'; // This is the full prescription management tab
+import { PatientManagementTab } from './PatientManagementTab';
 
 export function DoctorPortal() {
   // UPDATE activeTab to include 'prescription-mgmt'
-  const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'prescription-mgmt' | 'vitals'>('consultation');
+  const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'patient-mgmt' | 'vitals'>('consultation');
   const [doctorId, setDoctorId] = useState<number | null>(null);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
   const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
@@ -192,65 +193,65 @@ export function DoctorPortal() {
               Today's Schedule - {new Date().toLocaleDateString()}
             </p>
           </div>
+      
+<div className="flex gap-2 border-b">
+  <button
+    onClick={() => setActiveTab('consultation')}
+    className={`px-4 py-2 border-b-2 transition-colors ${
+      activeTab === 'consultation'
+        ? 'border-blue-600 text-blue-600'
+        : 'border-transparent text-gray-600 hover:text-gray-900'
+    }`}
+  >
+    <ClipboardList className="size-4 inline mr-2" />
+    Consultation
+  </button>
+  <button
+    onClick={() => setActiveTab('queue')}
+    className={`px-4 py-2 border-b-2 transition-colors ${
+      activeTab === 'queue'
+        ? 'border-blue-600 text-blue-600'
+        : 'border-transparent text-gray-600 hover:text-gray-900'
+    }`}
+  >
+    <Users className="size-4 inline mr-2" />
+    Patient Queue
+  </button>
+<button
+  onClick={() => setActiveTab('patient-mgmt')}
+  className={`px-4 py-2 border-b-2 transition-colors ${
+    activeTab === 'patient-mgmt'
+      ? 'border-blue-600 text-blue-600'
+      : 'border-transparent text-gray-600 hover:text-gray-900'
+  }`}
+>
+  <Users className="size-4 inline mr-2" />
+  Patient Management
+</button>
 
-          {/* Tab Navigation - UPDATED */}
-          <div className="flex gap-2 border-b">
-            <button
-              onClick={() => setActiveTab('consultation')}
-              className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'consultation'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <ClipboardList className="size-4 inline mr-2" />
-              Consultation
-            </button>
-            <button
-              onClick={() => setActiveTab('queue')}
-              className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'queue'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Users className="size-4 inline mr-2" />
-              Patient Queue
-            </button>
-            <button
-              onClick={() => setActiveTab('prescription-mgmt')} // CHANGED from 'prescriptions' to 'prescription-mgmt'
-              className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'prescription-mgmt'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Pill className="size-4 inline mr-2" /> {/* CHANGED icon */}
-              Prescription Management {/* CHANGED text */}
-            </button>
-          </div>
+</div>
 
-          {activeTab === 'consultation' && (
-            <ConsultationTab 
-              doctorId={doctorId}
-              doctorProfile={doctorProfile}
-              todayAppointments={todayAppointments}
-              setTodayAppointments={setTodayAppointments}
-            />
-          )}
+{activeTab === 'consultation' && (
+  <ConsultationTab 
+    doctorId={doctorId}
+    doctorProfile={doctorProfile}
+    todayAppointments={todayAppointments}
+    setTodayAppointments={setTodayAppointments}
+  />
+)}
 
-          {activeTab === 'queue' && (
-            <PatientQueue 
-              doctorId={doctorId}
-              refreshData={() => {
-                window.location.reload();
-              }}
-            />
-          )}
+{activeTab === 'queue' && (
+  <PatientQueue 
+    doctorId={doctorId}
+    refreshData={() => {
+      window.location.reload();
+    }}
+  />
+)}
 
-          {activeTab === 'prescription-mgmt' && ( // ADDED this new tab
-            <PrescriptionTab />
-          )}
+{activeTab === 'patient-mgmt' && ( // ADDED this new tab
+  <PatientManagementTab />
+)}
 
           {/* This is the sidebar component - keep it */}
           <RecentMedicalRecords />

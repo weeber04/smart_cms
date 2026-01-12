@@ -1188,3 +1188,844 @@ export const goToBilling = async (req: Request, res: Response) => {
     });
   }
 };
+
+// ============ BILLING MANAGEMENT ============
+
+// Get all billing records
+export const getAllBilling = async (req: Request, res: Response) => {
+  try {
+    const [billing]: any = await db.query(`
+      SELECT 
+        b.*,
+        p.Name AS PatientName
+      FROM billing b
+      JOIN patient p ON b.PatientID = p.PatientID
+      ORDER BY b.BillingDate DESC, b.BillID DESC
+    `);
+    
+    res.json(billing);
+  } catch (error) {
+    console.error('Billing records error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch billing records',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get billing items for a specific bill
+export const getBillingItems = async (req: Request, res: Response) => {
+  const { billId } = req.params;
+  
+  try {
+    const [items]: any = await db.query(`
+      SELECT 
+        bi.*,
+        s.ServiceName
+      FROM billingitem bi
+      LEFT JOIN service s ON bi.ServiceID = s.ServiceID
+      WHERE bi.BillID = ?
+      ORDER BY bi.BillingItemID
+    `, [billId]);
+    
+    res.json(items);
+  } catch (error) {
+    console.error('Billing items error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch billing items',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Create billing record
+export const createBilling = async (req: Request, res: Response) => {
+  const {
+    PatientID,
+    AppointmentID,
+    ConsultationID,
+    TotalAmount,
+    AmountDue,
+    AmountPaid,
+    InsuranceCoverage,
+    PatientResponsibility,
+    BillingDate,
+    DueDate,
+    Status,
+    HandledBy,
+    items
+  } = req.body;
+
+  // Validate required fields
+  if (!PatientID || !HandledBy || !items || items.length === 0) {
+    return res.status(400).json({ 
+      error: 'PatientID, HandledBy, and at least one service item are required' 
+    });
+  }
+
+  const connection = await db.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+    
+    // Insert billing record
+    const billingQuery = `
+      INSERT INTO billing (
+        PatientID, AppointmentID, ConsultationID, TotalAmount,
+        AmountDue, AmountPaid, InsuranceCoverage, PatientResponsibility,
+        BillingDate, DueDate, Status, HandledBy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const [billingResult]: any = await connection.execute(billingQuery, [
+      PatientID,
+      AppointmentID || null,
+      ConsultationID || null,
+      TotalAmount,
+      AmountDue,
+      AmountPaid || 0,
+      InsuranceCoverage || 0,
+      PatientResponsibility,
+      BillingDate,
+      DueDate,
+      Status || 'pending',
+      HandledBy
+    ]);
+
+    const billId = billingResult.insertId;
+
+    // Insert billing items
+    const itemQuery = `
+      INSERT INTO billingitem (
+        BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `;
+
+    for (const item of items) {
+      await connection.execute(itemQuery, [
+        billId,
+        item.ServiceID,
+        item.Quantity || 1,
+        item.UnitPrice,
+        item.TotalAmount,
+        item.Description || `${item.ServiceName} (${item.Quantity || 1})`
+      ]);
+    }
+
+    await connection.commit();
+    
+    res.json({ 
+      success: true, 
+      billId,
+      message: 'Billing record created successfully' 
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Create billing error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to create billing record',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+// // Update visit status
+// export const updateVisitStatus = async (req: Request, res: Response) => {
+//   const { VisitID, VisitStatus } = req.body;
+
+//   if (!VisitID || !VisitStatus) {
+//     return res.status(400).json({ 
+//       error: 'VisitID and VisitStatus are required' 
+//     });
+//   }
+
+//   try {
+//     const [result]: any = await db.execute(
+//       `UPDATE patient_visit 
+//        SET VisitStatus = ?, UpdatedAt = NOW()
+//        WHERE VisitID = ?`,
+//       [VisitStatus, VisitID]
+//     );
+    
+//     if (result.affectedRows === 0) {
+//       return res.status(404).json({ error: 'Visit not found' });
+//     }
+
+//     res.json({ 
+//       success: true, 
+//       message: 'Visit status updated successfully' 
+//     });
+//   } catch (error) {
+//     console.error('Update visit status error:', error);
+//     res.status(500).json({ 
+//       error: 'Failed to update visit status',
+//       details: error instanceof Error ? error.message : 'Unknown error'
+//     });
+//   }
+// };
+
+// // Process payment
+// export const processPayment = async (req: Request, res: Response) => {
+//   const {
+//     BillID,
+//     AmountPaid,
+//     PaymentMethod,
+//     PaymentDate,
+//     TransactionID,
+//     ProcessedBy,
+//     Notes
+//   } = req.body;
+
+//   // Validate required fields
+//   if (!BillID || !AmountPaid || !PaymentMethod || !ProcessedBy) {
+//     return res.status(400).json({ 
+//       error: 'BillID, AmountPaid, PaymentMethod, and ProcessedBy are required' 
+//     });
+//   }
+
+//   const connection = await db.getConnection();
+  
+//   try {
+//     await connection.beginTransaction();
+
+//     // Get current billing info
+//     const [billing]: any = await connection.query(
+//       'SELECT AmountDue, AmountPaid, Status FROM billing WHERE BillID = ?',
+//       [BillID]
+//     );
+
+//     if (billing.length === 0) {
+//       await connection.rollback();
+//       return res.status(404).json({ error: 'Billing record not found' });
+//     }
+
+//     const currentBill = billing[0];
+//     const newAmountPaid = currentBill.AmountPaid + AmountPaid;
+//     const newAmountDue = currentBill.AmountDue - AmountPaid;
+    
+//     // Determine new status
+//     let newStatus = currentBill.Status;
+//     if (newAmountDue <= 0) {
+//       newStatus = 'paid';
+//     } else if (newAmountPaid > 0 && newAmountDue > 0) {
+//       newStatus = 'partial';
+//     }
+
+//     // Update billing record
+//     const updateBillingQuery = `
+//       UPDATE billing 
+//       SET 
+//         AmountPaid = ?,
+//         AmountDue = ?,
+//         Status = ?,
+//         PaymentMethod = ?,
+//         PaymentDate = ?
+//       WHERE BillID = ?
+//     `;
+
+//     await connection.execute(updateBillingQuery, [
+//       newAmountPaid,
+//       newAmountDue,
+//       newStatus,
+//       PaymentMethod,
+//       PaymentDate,
+//       BillID
+//     ]);
+
+//     // Create payment record
+//     const paymentQuery = `
+//       INSERT INTO payment (
+//         BillID, AmountPaid, PaymentMethod, PaymentDate,
+//         TransactionID, ProcessedBy, Notes
+//       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+//     `;
+
+//     await connection.execute(paymentQuery, [
+//       BillID,
+//       AmountPaid,
+//       PaymentMethod,
+//       PaymentDate,
+//       TransactionID || `TRX-${Date.now()}`,
+//       ProcessedBy,
+//       Notes || null
+//     ]);
+
+//     await connection.commit();
+    
+//     res.json({ 
+//       success: true, 
+//       message: 'Payment processed successfully',
+//       newStatus,
+//       newAmountDue
+//     });
+//   } catch (error) {
+//     await connection.rollback();
+//     console.error('Process payment error:', error);
+//     res.status(500).json({ 
+//       success: false,
+//       error: 'Failed to process payment',
+//       details: error instanceof Error ? error.message : 'Unknown error'
+//     });
+//   } finally {
+//     connection.release();
+//   }
+// };
+
+// Get all services
+export const getServices = async (req: Request, res: Response) => {
+  try {
+    const [services]: any = await db.query(`
+      SELECT * FROM service 
+      WHERE IsActive = 1
+      ORDER BY ServiceName
+    `);
+    
+    res.json(services);
+  } catch (error) {
+    console.error('Services error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch services',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// receptionistController.ts - Updated billing logic
+export const createBillingForConsultation = async (req: Request, res: Response) => {
+  const {
+    consultationId,
+    patientId,
+    insuranceCoverage = 0,
+    receptionistId
+  } = req.body;
+
+  if (!consultationId || !patientId || !receptionistId) {
+    return res.status(400).json({
+      error: "Missing required fields: consultationId, patientId, receptionistId"
+    });
+  }
+
+  const connection = await db.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+
+    // 1. Get consultation details
+    const [consultation]: any = await connection.query(`
+      SELECT 
+        c.*, 
+        pv.VisitID,
+        d.Specialization,
+        u.Name AS DoctorName
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      JOIN doctorprofile d ON c.DoctorID = d.DoctorID
+      JOIN useraccount u ON c.DoctorID = u.UserID
+      WHERE c.ConsultationID = ? AND pv.PatientID = ?
+    `, [consultationId, patientId]);
+
+    if (consultation.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: "Consultation not found for this patient" });
+    }
+
+    const consultationData = consultation[0];
+
+    // 2. Get prescription details and calculate medication costs
+    const [prescriptionItems]: any = await connection.query(`
+      SELECT 
+        pi.*,
+        d.DrugName,
+        d.UnitPrice,
+        d.QuantityInStock,
+        (pi.Quantity * d.UnitPrice) AS ItemTotal
+      FROM prescription p
+      JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE p.ConsultationID = ? AND p.PatientID = ?
+    `, [consultationId, patientId]);
+
+    // 3. Calculate totals
+    const consultationFee = 150.00; // Fixed consultation fee
+    const medicationTotal = prescriptionItems.reduce((sum: number, item: any) => 
+      sum + (item.Quantity * item.UnitPrice), 0);
+    
+    const subtotal = consultationFee + medicationTotal;
+    const patientResponsibility = subtotal - insuranceCoverage;
+
+    // 4. Create billing record
+    const [billingResult]: any = await connection.query(`
+      INSERT INTO billing (
+        PatientID, ConsultationID, TotalAmount, AmountDue, AmountPaid,
+        InsuranceCoverage, PatientResponsibility, BillingDate, DueDate,
+        Status, HandledBy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), 
+                DATE_ADD(CURDATE(), INTERVAL 30 DAY), 'pending', ?)
+    `, [
+      patientId,
+      consultationId,
+      subtotal,
+      patientResponsibility,
+      0,
+      insuranceCoverage,
+      patientResponsibility,
+      receptionistId
+    ]);
+
+    const billId = billingResult.insertId;
+
+    // 5. Add billing items
+    // 5a. Consultation fee
+    await connection.query(`
+      INSERT INTO billingitem (
+        BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
+      ) VALUES (?, ?, 1, ?, ?, ?)
+    `, [
+      billId,
+      1, // Consultation service ID (from service table)
+      consultationFee,
+      consultationFee,
+      `Consultation with Dr. ${consultationData.DoctorName} (${consultationData.Specialization})`
+    ]);
+
+    // 5b. Medication items
+    for (const item of prescriptionItems) {
+      await connection.query(`
+        INSERT INTO billingitem (
+          BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
+        ) VALUES (?, NULL, ?, ?, ?, ?)
+      `, [
+        billId,
+        item.Quantity,
+        item.UnitPrice,
+        item.ItemTotal,
+        `${item.DrugName} - ${item.Dosage} (${item.Frequency} for ${item.Duration})`
+      ]);
+    }
+
+    // 6. Update visit status to 'completed'
+    await connection.query(`
+      UPDATE patient_visit 
+      SET VisitStatus = 'completed', UpdatedAt = NOW()
+      WHERE VisitID = ?
+    `, [consultationData.VisitID]);
+
+    // 7. Update prescription status if exists
+    if (prescriptionItems.length > 0) {
+      await connection.query(`
+        UPDATE prescription 
+        SET Remarks = CONCAT(IFNULL(Remarks, ''), 
+            '\n\nBilling Information:\n- Bill ID: ${billId}\n- Total: $${subtotal.toFixed(2)}')
+        WHERE ConsultationID = ? AND PatientID = ?
+      `, [consultationId, patientId]);
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      billId,
+      message: "Billing created successfully",
+      billingSummary: {
+        consultationFee: consultationFee,
+        medicationTotal: medicationTotal,
+        subtotal: subtotal,
+        insuranceCoverage: insuranceCoverage,
+        patientResponsibility: patientResponsibility,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Create billing error:", error);
+    res.status(500).json({ 
+      error: "Failed to create billing",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+// receptionistController.ts
+export const processPaymentForBilling = async (req: Request, res: Response) => {
+  const {
+    billId,
+    amountPaid,
+    paymentMethod,
+    receptionistId,
+    notes = ''
+  } = req.body;
+
+  if (!billId || !amountPaid || !paymentMethod || !receptionistId) {
+    return res.status(400).json({
+      error: "Missing required fields: billId, amountPaid, paymentMethod, receptionistId"
+    });
+  }
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // 1. Get billing details
+    const [billing]: any = await connection.query(`
+      SELECT 
+        b.*, 
+        p.Name AS PatientName,
+        p.ICNo,
+        c.ConsultationID,
+        c.VisitID
+      FROM billing b
+      JOIN patient p ON b.PatientID = p.PatientID
+      LEFT JOIN consultation c ON b.ConsultationID = c.ConsultationID
+      WHERE b.BillID = ?
+    `, [billId]);
+
+    if (billing.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: "Billing record not found" });
+    }
+
+    const billingData = billing[0];
+
+    // 2. Validate payment amount
+    if (amountPaid <= 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: "Payment amount must be greater than 0" });
+    }
+
+    if (amountPaid > billingData.AmountDue) {
+      await connection.rollback();
+      return res.status(400).json({ 
+        error: "Payment amount exceeds balance due",
+        maxAmount: billingData.AmountDue
+      });
+    }
+
+    // 3. Update billing with payment
+    const newAmountPaid = billingData.AmountPaid + amountPaid;
+    const newAmountDue = billingData.AmountDue - amountPaid;
+    
+    let newStatus = billingData.Status;
+    if (newAmountDue <= 0) {
+      newStatus = 'paid';
+    } else if (amountPaid > 0 && amountPaid < billingData.AmountDue) {
+      newStatus = 'partial';
+    }
+
+    await connection.query(`
+      UPDATE billing 
+      SET 
+        AmountPaid = ?,
+        AmountDue = ?,
+        Status = ?,
+        PaymentMethod = ?,
+        PaymentDate = NOW(),
+        UpdatedAt = NOW()
+      WHERE BillID = ?
+    `, [newAmountPaid, newAmountDue, newStatus, paymentMethod, billId]);
+
+    // 4. Create payment record
+    const transactionId = `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    
+    await connection.query(`
+      INSERT INTO payment (
+        BillID, AmountPaid, PaymentMethod, PaymentDate,
+        TransactionID, ProcessedBy, Notes
+      ) VALUES (?, ?, ?, NOW(), ?, ?, ?)
+    `, [billId, amountPaid, paymentMethod, transactionId, receptionistId, notes]);
+
+    // 5. If fully paid, update prescription items status to 'ready' for dispensing
+    if (newStatus === 'paid') {
+      // Get prescription items for this consultation
+      await connection.query(`
+        UPDATE prescriptionitem pi
+        JOIN prescription p ON pi.PrescriptionID = p.PrescriptionID
+        SET pi.Status = 'ready',
+            pi.StatusUpdatedAt = NOW(),
+            pi.StatusUpdatedBy = ?
+        WHERE p.ConsultationID = ?
+          AND pi.Status = 'pending'
+      `, [receptionistId, billingData.ConsultationID]);
+      
+      // Update consultation status
+      await connection.query(`
+        UPDATE consultation 
+        SET TreatmentPlan = CONCAT(
+          IFNULL(TreatmentPlan, ''),
+          '\n\n## Payment Received\n',
+          '- Date: ', DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s'), '\n',
+          '- Amount: $', ?, '\n',
+          '- Method: ', ?
+        )
+        WHERE ConsultationID = ?
+      `, [amountPaid, paymentMethod, billingData.ConsultationID]);
+    }
+
+    // 6. Update drug inventory when payment is completed (not for partial payments)
+    if (newStatus === 'paid') {
+      // Deduct from inventory for paid prescriptions
+      await connection.query(`
+        UPDATE drug d
+        JOIN prescriptionitem pi ON d.DrugID = pi.DrugID
+        JOIN prescription p ON pi.PrescriptionID = p.PrescriptionID
+        SET d.QuantityInStock = d.QuantityInStock - pi.Quantity,
+            d.LastUpdated = NOW()
+        WHERE p.ConsultationID = ?
+          AND d.QuantityInStock >= pi.Quantity
+      `, [billingData.ConsultationID]);
+
+      // Log inventory changes
+      await connection.query(`
+        INSERT INTO inventorylog (Action, QuantityChange, Timestamp, DrugID, PerformedBy)
+        SELECT 
+          'payment-dispensed',
+          -pi.Quantity,
+          NOW(),
+          pi.DrugID,
+          ?
+        FROM prescriptionitem pi
+        JOIN prescription p ON pi.PrescriptionID = p.PrescriptionID
+        WHERE p.ConsultationID = ?
+      `, [receptionistId, billingData.ConsultationID]);
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Payment processed successfully. Status: ${newStatus}`,
+      paymentDetails: {
+        billId,
+        transactionId,
+        amountPaid,
+        previousBalance: billingData.AmountDue,
+        newBalance: newAmountDue,
+        status: newStatus,
+        paymentMethod,
+        processedBy: receptionistId,
+        timestamp: new Date().toISOString()
+      },
+      receiptInfo: {
+        patientName: billingData.PatientName,
+        patientIC: billingData.ICNo,
+        billId: billingData.BillID,
+        totalAmount: billingData.TotalAmount,
+        insuranceCoverage: billingData.InsuranceCoverage,
+        amountPaid: newAmountPaid,
+        balance: newAmountDue
+      }
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error("Process payment error:", error);
+    res.status(500).json({ 
+      error: "Failed to process payment",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+// receptionistController.ts
+export const getPatientsToBill = async (req: Request, res: Response) => {
+  try {
+    const [patients]: any = await db.query(`
+      SELECT 
+        pv.VisitID,
+        pv.PatientID,
+        p.Name AS PatientName,
+        p.ICNo,
+        pv.VisitType,
+        pv.VisitStatus,
+        pv.ArrivalTime,
+        c.ConsultationID,
+        u.Name AS DoctorName,
+        d.Specialization,
+        pv.VisitNotes,
+        -- Check if prescription exists
+        (SELECT COUNT(*) FROM prescription pr 
+         WHERE pr.ConsultationID = c.ConsultationID) AS HasPrescription,
+        -- Get prescription details if exists
+        (SELECT GROUP_CONCAT(drg.DrugName SEPARATOR ', ') 
+         FROM prescription pr2
+         JOIN prescriptionitem pri ON pr2.PrescriptionID = pri.PrescriptionID
+         JOIN drug drg ON pri.DrugID = drg.DrugID
+         WHERE pr2.ConsultationID = c.ConsultationID) AS Medications,
+        -- Check if billing already exists
+        (SELECT COUNT(*) FROM billing b 
+         WHERE b.ConsultationID = c.ConsultationID) AS HasBilling
+      FROM patient_visit pv
+      JOIN patient p ON pv.PatientID = p.PatientID
+      JOIN consultation c ON pv.VisitID = c.VisitID
+      JOIN useraccount u ON c.DoctorID = u.UserID
+      JOIN doctorprofile d ON c.DoctorID = d.DoctorID
+      WHERE pv.VisitStatus IN ('to-be-billed', 'waiting-prescription')
+        AND c.EndTime IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM billing b 
+          WHERE b.ConsultationID = c.ConsultationID 
+            AND b.Status IN ('pending', 'partial', 'paid')
+        )
+      ORDER BY pv.ArrivalTime DESC
+    `);
+    
+    res.json(patients);
+  } catch (error) {
+    console.error('Patients to bill error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch patients to bill',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const createBillingFromPatient = async (req: Request, res: Response) => {
+  const {
+    consultationId,
+    patientId,
+    receptionistId,
+    insuranceCoverage = 0
+  } = req.body;
+
+  try {
+    // 1. Get consultation details with prescription info
+    const [consultationDetails]: any = await db.query(`
+      SELECT 
+        c.*,
+        pv.VisitID,
+        pv.PatientID,
+        u.Name AS DoctorName,
+        d.Specialization,
+        -- Get prescription total
+        COALESCE((
+          SELECT SUM(pi.Quantity * drg.UnitPrice)
+          FROM prescription pr
+          JOIN prescriptionitem pi ON pr.PrescriptionID = pi.PrescriptionID
+          JOIN drug drg ON pi.DrugID = drg.DrugID
+          WHERE pr.ConsultationID = c.ConsultationID
+        ), 0) AS PrescriptionTotal
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      JOIN useraccount u ON c.DoctorID = u.UserID
+      JOIN doctorprofile d ON c.DoctorID = d.DoctorID
+      WHERE c.ConsultationID = ? AND pv.PatientID = ?
+    `, [consultationId, patientId]);
+
+    if (consultationDetails.length === 0) {
+      return res.status(404).json({ error: "Consultation not found" });
+    }
+
+    const consultation = consultationDetails[0];
+    
+    // 2. Calculate totals
+    const consultationFee = 150.00;
+    const prescriptionTotal = parseFloat(consultation.PrescriptionTotal) || 0;
+    const subtotal = consultationFee + prescriptionTotal;
+    const patientResponsibility = subtotal - insuranceCoverage;
+
+    // 3. Check if billing already exists
+    const [existingBilling]: any = await db.query(`
+      SELECT BillID, Status FROM billing 
+      WHERE ConsultationID = ? AND PatientID = ?
+    `, [consultationId, patientId]);
+
+    if (existingBilling.length > 0) {
+      return res.status(400).json({
+        error: "Billing already exists for this consultation",
+        billId: existingBilling[0].BillID,
+        status: existingBilling[0].Status
+      });
+    }
+
+    // 4. Create billing record
+    const [billingResult]: any = await db.query(`
+      INSERT INTO billing (
+        PatientID, ConsultationID, TotalAmount, AmountDue, AmountPaid,
+        InsuranceCoverage, PatientResponsibility, BillingDate, DueDate,
+        Status, HandledBy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), 
+                DATE_ADD(CURDATE(), INTERVAL 30 DAY), 'pending', ?)
+    `, [
+      patientId,
+      consultationId,
+      subtotal,
+      patientResponsibility,
+      0,
+      insuranceCoverage,
+      patientResponsibility,
+      receptionistId
+    ]);
+
+    const billId = billingResult.insertId;
+
+    // 5. Create billing items
+    // Consultation fee
+    await db.query(`
+      INSERT INTO billingitem (BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description)
+      VALUES (?, 1, 1, ?, ?, ?)
+    `, [billId, consultationFee, consultationFee, `Consultation Fee`]);
+
+    // Prescription items
+    const [prescriptionItems]: any = await db.query(`
+      SELECT 
+        pi.*,
+        drg.DrugName,
+        drg.UnitPrice,
+        (pi.Quantity * drg.UnitPrice) AS ItemTotal
+      FROM prescription pr
+      JOIN prescriptionitem pi ON pr.PrescriptionID = pi.PrescriptionID
+      JOIN drug drg ON pi.DrugID = drg.DrugID
+      WHERE pr.ConsultationID = ?
+    `, [consultationId]);
+
+    for (const item of prescriptionItems) {
+      await db.query(`
+        INSERT INTO billingitem (BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description)
+        VALUES (?, NULL, ?, ?, ?, ?)
+      `, [
+        billId,
+        item.Quantity,
+        item.UnitPrice,
+        item.ItemTotal,
+        `${item.DrugName} - ${item.Dosage || 'As prescribed'}`
+      ]);
+    }
+
+    // 6. Update visit status
+    await db.query(`
+      UPDATE patient_visit 
+      SET VisitStatus = 'to-be-billed', UpdatedAt = NOW()
+      WHERE VisitID = ?
+    `, [consultation.VisitID]);
+
+    res.json({
+      success: true,
+      billId,
+      message: "Billing created successfully",
+      summary: {
+        consultationFee: consultationFee,
+        prescriptionTotal: prescriptionTotal,
+        subtotal: subtotal,
+        insuranceCoverage: insuranceCoverage,
+        patientResponsibility: patientResponsibility,
+        itemsCount: 1 + prescriptionItems.length, // Consultation + medications
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    });
+
+  } catch (error) {
+    console.error("Create billing error:", error);
+    res.status(500).json({ 
+      error: "Failed to create billing",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

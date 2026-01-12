@@ -295,7 +295,7 @@ export function ReceptionistPortal() {
           {activeTab === 'billing' && (
             <BillingManagement
               receptionistId={receptionistId}
-              billingRecords={billingRecords}
+              
               refreshData={() => refreshData('billing')}
             />
           )}

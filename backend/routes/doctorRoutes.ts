@@ -47,7 +47,12 @@ updateConsultation,
   getPatientVisitsD,
   getPatientConsultationsD,
   getPatientPrescriptionsD,
-  getPatientAllergiesD
+  getPatientAllergiesD,
+  getPatientConsultations,
+  getAllPatients2,
+  getDoctorConsultationsCount,
+  getDoctorPrescriptionsCount,
+  getDoctorPatientsWithAppointmentsCount
 
   // Add these to your doctorRoutes.ts
 
@@ -59,6 +64,12 @@ const router = express.Router();
 // Apply authentication middleware to ALL doctor routes
 router.use(verifyToken);
 router.use(requireRole('doctor'));
+
+router.get('/consultations/count', getDoctorConsultationsCount);
+router.get('/prescriptions/count', getDoctorPrescriptionsCount);
+router.get('/appointments/count', getDoctorPatientsWithAppointmentsCount);
+router.get('/patients',getAllPatients2);
+router.get('/patient/:patientId/consultations',getPatientConsultations);
 
 
 router.get('/patient/:patientId/visitsD', getPatientVisitsD);

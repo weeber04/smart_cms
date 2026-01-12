@@ -3,6 +3,117 @@ import { Request, Response } from "express";
 import { db } from "../db";
 import { autoCreateMedicalHistoryFromConsultation } from './medicalHistoryController';
 
+// Helper function for auto-billing
+const createAutoBill = async (consultationId: number, patientId: number, insuranceProvider: string | null) => {
+  try {
+    console.log('Creating auto-bill for consultation:', consultationId);
+    
+    // 1. Get consultation fee (from service table or fixed rate)
+    const [serviceFee]: any = await db.query(`
+      SELECT ServiceID, StandardFee FROM service 
+      WHERE ServiceID = 1 AND IsActive = 1
+    `);
+    
+    const consultationFee = serviceFee.length > 0 ? serviceFee[0].StandardFee : 50.00;
+    console.log('Consultation fee:', consultationFee);
+    
+    // 2. Get prescription medications total
+    const [medicationItems]: any = await db.query(`
+      SELECT 
+        pi.Quantity,
+        pi.DrugID,
+        d.DrugName,
+        d.UnitPrice,
+        (pi.Quantity * d.UnitPrice) as TotalPrice
+      FROM prescription p
+      JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE p.ConsultationID = ?
+    `, [consultationId]);
+    
+    let medicationTotal = 0;
+    medicationItems.forEach((item: any) => {
+      medicationTotal += parseFloat(item.TotalPrice);
+    });
+    console.log('Medication total:', medicationTotal);
+    
+    // 3. Calculate total
+    const totalAmount = consultationFee + medicationTotal;
+    console.log('Total amount:', totalAmount);
+    
+    // 4. Calculate insurance coverage (simplified: 80% if has insurance)
+    const hasInsurance = insuranceProvider !== null && insuranceProvider.trim() !== '';
+    const insuranceCoverage = hasInsurance ? totalAmount * 0.8 : 0;
+    const patientResponsibility = totalAmount - insuranceCoverage;
+    
+    console.log('Insurance:', { hasInsurance, insuranceCoverage, patientResponsibility });
+    
+    // 5. Create billing record
+    const [billingResult]: any = await db.query(`
+      INSERT INTO billing (
+        PatientID, ConsultationID, AppointmentID,
+        TotalAmount, AmountDue, AmountPaid,
+        InsuranceCoverage, PatientResponsibility,
+        BillingDate, DueDate, Status, HandledBy
+      ) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, CURDATE(), 
+        DATE_ADD(CURDATE(), INTERVAL 30 DAY), 'pending', NULL)
+    `, [
+      patientId,
+      consultationId,
+      totalAmount,
+      patientResponsibility,
+      insuranceCoverage,
+      patientResponsibility
+    ]);
+    
+    const billId = billingResult.insertId;
+    console.log('Bill created with ID:', billId);
+    
+    // 6. Add consultation fee item
+    await db.query(`
+      INSERT INTO billingitem (
+        BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
+      ) VALUES (?, 1, 1, ?, ?, 'Doctor Consultation Fee')
+    `, [billId, consultationFee, consultationFee]);
+    console.log('Added consultation fee item');
+    
+    // 7. Add medication items
+    for (const item of medicationItems) {
+      await db.query(`
+        INSERT INTO billingitem (
+          BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
+        ) VALUES (?, NULL, ?, ?, ?, ?)
+      `, [
+        billId,
+        item.Quantity,
+        item.UnitPrice,
+        item.TotalPrice,
+        `${item.DrugName} - Prescription Medication`
+      ]);
+    }
+    console.log(`Added ${medicationItems.length} medication items`);
+    
+    return {
+      success: true,
+      billId,
+      totalAmount,
+      consultationFee,
+      medicationTotal,
+      insuranceCoverage,
+      patientResponsibility,
+      itemsCount: 1 + medicationItems.length
+    };
+    
+  } catch (error: any) {
+    console.error("Auto-billing error:", error);
+    return { 
+      success: false, 
+      error: error.message,
+      sqlMessage: error.sqlMessage
+    };
+  }
+};
+
 export const getDoctorProfile = async (req: Request, res: Response) => {
   const { doctorId } = req.params;
   
@@ -2858,25 +2969,36 @@ export const saveConsultationForm = async (req: Request, res: Response) => {
 };
 
 // KEEP THE OLD FUNCTION BUT RENAME IT for completing consultation later
+// receptionistController.ts or consultationController.ts
 export const completeConsultation = async (req: Request, res: Response) => {
   const { consultationId, patientId, doctorId } = req.body;
   
-  if (!consultationId || !patientId || !doctorId) {
-    return res.status(400).json({ 
-      success: false,
-      error: "Missing required parameters: consultationId, patientId, doctorId" 
-    });
-  }
-  
   try {
+    console.log('=== COMPLETE CONSULTATION START ===');
+    console.log('Params:', { consultationId, patientId, doctorId });
+    
+    // Start transaction
     await db.query('START TRANSACTION');
     
-    // 1. Get consultation details including VisitID
+    // ============================================
+    // 1. GET CONSULTATION DETAILS
+    // ============================================
+    console.log('1. Getting consultation details...');
     const [consultationDetails]: any = await db.query(`
-      SELECT c.*, pv.VisitID, pv.VisitStatus, pv.QueueNumber, pv.PatientID, 
-             pv.QueueStatus, pv.DoctorID
+      SELECT 
+        c.*,
+        pv.VisitID,
+        pv.VisitStatus,
+        pv.QueueNumber,
+        p.Name AS PatientName,
+        p.InsuranceProvider,
+        u.Name AS DoctorName,
+        d.Specialization
       FROM consultation c
       JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      JOIN patient p ON pv.PatientID = p.PatientID
+      JOIN useraccount u ON c.DoctorID = u.UserID
+      LEFT JOIN doctorprofile d ON c.DoctorID = d.DoctorID
       WHERE c.ConsultationID = ? 
         AND c.DoctorID = ? 
         AND pv.PatientID = ?
@@ -2884,16 +3006,19 @@ export const completeConsultation = async (req: Request, res: Response) => {
     
     if (consultationDetails.length === 0) {
       await db.query('ROLLBACK');
+      console.error('Consultation not found');
       return res.status(404).json({ 
         success: false,
-        error: "Consultation not found or access denied" 
+        error: "Consultation not found" 
       });
     }
     
     const consultation = consultationDetails[0];
-    const visitId = consultation.VisitID;
+    console.log('Consultation found:', consultation);
     
-    // 2. Check if consultation already has EndTime (already completed)
+    // ============================================
+    // 2. CHECK IF ALREADY COMPLETED
+    // ============================================
     if (consultation.EndTime) {
       await db.query('ROLLBACK');
       return res.status(400).json({ 
@@ -2903,56 +3028,61 @@ export const completeConsultation = async (req: Request, res: Response) => {
       });
     }
     
-    // 3. Check prescription details
+    // ============================================
+    // 3. UPDATE CONSULTATION END TIME
+    // ============================================
+    console.log('3. Setting consultation end time...');
+    await db.query(`
+      UPDATE consultation 
+      SET EndTime = NOW(), UpdatedAt = NOW()
+      WHERE ConsultationID = ?
+    `, [consultationId]);
+    
+    // ============================================
+    // 4. CHECK FOR PRESCRIPTION
+    // ============================================
+    console.log('4. Checking for prescription...');
     const [prescriptionDetails]: any = await db.query(`
-      SELECT 
-        p.PrescriptionID,
-        COUNT(pi.ItemID) as ItemCount,
-        GROUP_CONCAT(d.DrugName SEPARATOR ', ') as Medications
+      SELECT p.PrescriptionID, COUNT(pi.ItemID) as ItemCount
       FROM prescription p
       LEFT JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
-      LEFT JOIN drug d ON pi.DrugID = d.DrugID
       WHERE p.ConsultationID = ?
       GROUP BY p.PrescriptionID
     `, [consultationId]);
     
-    // 4. Determine next status
-    let nextVisitStatus = 'to-be-billed';
-    let pharmacyQueueNumber = null;
-    let nextDestination = 'Billing Counter';
+    const hasPrescription = prescriptionDetails.length > 0;
+    console.log('Has prescription:', hasPrescription);
     
-    if (prescriptionDetails.length > 0) {
+    // ============================================
+    // 5. DETERMINE NEXT STEPS
+    // ============================================
+    let nextVisitStatus = 'to-be-billed';
+    let nextDestination = 'Billing Counter';
+    let pharmacyQueueNumber = null;
+    
+    if (hasPrescription) {
       nextVisitStatus = 'waiting-prescription';
       nextDestination = 'Pharmacy';
       
       // Generate pharmacy queue number
-      const date = new Date();
-      const dateStr = date.getFullYear().toString().slice(2) + 
-                     (date.getMonth() + 1).toString().padStart(2, '0') + 
-                     date.getDate().toString().padStart(2, '0');
+      const today = new Date();
+      const dateStr = today.getFullYear().toString().slice(-2) + 
+                     String(today.getMonth() + 1).padStart(2, '0') + 
+                     String(today.getDate()).padStart(2, '0');
       
-      // Get next pharmacy queue number for today
       const [pharmacyQueue]: any = await db.query(`
-        SELECT COUNT(*) as count 
-        FROM patient_visit 
-        WHERE DATE(UpdatedAt) = CURDATE() 
-          AND VisitStatus = 'waiting-prescription'
+        SELECT COUNT(*) as count FROM prescription 
+        WHERE DATE(PrescribedDate) = CURDATE()
       `);
       
-      const queueCount = pharmacyQueue[0].count + 1;
-      pharmacyQueueNumber = `P-${dateStr}-${queueCount.toString().padStart(3, '0')}`;
+      pharmacyQueueNumber = `P-${dateStr}-${String(pharmacyQueue[0].count + 1).padStart(3, '0')}`;
+      console.log('Pharmacy queue:', pharmacyQueueNumber);
     }
     
-    // 5. Update consultation
-    await db.query(`
-      UPDATE consultation 
-      SET 
-        EndTime = NOW(),
-        UpdatedAt = NOW()
-      WHERE ConsultationID = ?
-    `, [consultationId]);
-    
-    // 6. Update patient visit - QueueStatus remains as 'waiting' (not 'completed')
+    // ============================================
+    // 6. UPDATE PATIENT VISIT
+    // ============================================
+    console.log('6. Updating patient visit...');
     await db.query(`
       UPDATE patient_visit 
       SET 
@@ -2962,69 +3092,83 @@ export const completeConsultation = async (req: Request, res: Response) => {
         CheckOutTime = NOW(),
         UpdatedAt = NOW()
       WHERE VisitID = ?
-    `, [nextVisitStatus, pharmacyQueueNumber, visitId]);
+    `, [nextVisitStatus, pharmacyQueueNumber, consultation.VisitID]);
     
-    // 7. If going to pharmacy, update prescription with queue info
-    if (prescriptionDetails.length > 0 && pharmacyQueueNumber) {
+    // ============================================
+    // 7. UPDATE PRESCRIPTION WITH QUEUE (IF ANY)
+    // ============================================
+    if (hasPrescription && pharmacyQueueNumber) {
+      console.log('7. Updating prescription with queue info...');
       await db.query(`
         UPDATE prescription 
-        SET Remarks = CONCAT(IFNULL(Remarks, ''), 
-            '\nPharmacy Queue: ${pharmacyQueueNumber}\nTime: ${new Date().toLocaleTimeString()}')
+        SET Remarks = CONCAT(
+          IFNULL(Remarks, ''),
+          '\nPharmacy Queue: ', ?,
+          '\nTime: ', DATE_FORMAT(NOW(), '%r')
+        )
         WHERE ConsultationID = ?
-      `, [consultationId]);
+      `, [pharmacyQueueNumber, consultationId]);
     }
     
-    // 8. Add to medical history if diagnosis exists
+    // ============================================
+    // 8. AUTO-CREATE BILL (NEW!)
+    // ============================================
+    console.log('8. Creating auto-bill...');
+    const billingResult = await createAutoBill(consultationId, patientId, consultation.InsuranceProvider);
+    console.log('Billing result:', billingResult);
+    
+    // ============================================
+    // 9. ADD TO MEDICAL HISTORY
+    // ============================================
     if (consultation.Diagnosis && consultation.Diagnosis.trim() !== '') {
+      console.log('9. Adding to medical history...');
       await db.query(`
         INSERT INTO medical_history (
-          PatientID, 
-          ConsultationID, 
-          VisitID,
-          RecordType, 
-          RecordName, 
-          Description, 
-          Status, 
-          StartDate,
-          Severity,
-          CreatedBy,
-          CreatedAt,
-          UpdatedAt
-        ) VALUES (?, ?, ?, 'condition', ?, ?, 'active', CURDATE(), 'mild', ?, NOW(), NOW())
+          PatientID, ConsultationID, VisitID, RecordType, 
+          RecordName, Description, Status, StartDate,
+          Severity, CreatedBy, CreatedAt, UpdatedAt
+        ) VALUES (?, ?, ?, 'condition', ?, ?, 'active', 
+          CURDATE(), ?, ?, NOW(), NOW())
       `, [
         patientId,
         consultationId,
-        visitId,
+        consultation.VisitID,
         consultation.Diagnosis,
         `Primary diagnosis: ${consultation.Diagnosis}\nCode: ${consultation.DiagnosisCode || 'N/A'}`,
+        consultation.SeverityAssessment || 'mild',
         doctorId
       ]);
     }
     
+    // ============================================
+    // 10. COMMIT TRANSACTION
+    // ============================================
     await db.query('COMMIT');
     
-    // 9. Prepare response
-    const response = {
+    console.log('=== CONSULTATION COMPLETED SUCCESSFULLY ===');
+    
+    // Response
+    res.json({
       success: true,
-      message: `Consultation completed successfully. Patient needs to visit ${nextDestination}.`,
-      consultationId: consultationId,
-      visitId: visitId,
+      message: `Consultation completed. Patient needs to visit ${nextDestination}.`,
+      consultationId,
+      visitId: consultation.VisitID,
       nextStatus: nextVisitStatus,
-      nextDestination: nextDestination,
-      queueStatus: 'waiting',
-      hasPrescription: prescriptionDetails.length > 0,
+      nextDestination,
+      hasPrescription,
       pharmacyQueueNumber: pharmacyQueueNumber,
-      prescriptionDetails: prescriptionDetails.length > 0 ? {
-        prescriptionId: prescriptionDetails[0].PrescriptionID,
-        itemCount: prescriptionDetails[0].ItemCount,
-        medications: prescriptionDetails[0].Medications
-      } : null,
-      instructions: `Please proceed to ${nextDestination}${pharmacyQueueNumber ? `. Queue: ${pharmacyQueueNumber}` : ''}`
-    };
+      billing: {
+        created: billingResult.success,
+        billId: billingResult.billId,
+        totalAmount: billingResult.totalAmount,
+        patientResponsibility: billingResult.patientResponsibility
+      },
+      instructions: hasPrescription 
+        ? `1. Go to Pharmacy (Queue: ${pharmacyQueueNumber})\n2. Then go to Billing Counter`
+        : `Go directly to Billing Counter`
+    });
     
-    res.json(response);
-    
-  } catch (error) {
+  } catch (error: any) {
     await db.query('ROLLBACK');
     console.error("Complete consultation error:", error);
     res.status(500).json({ 
@@ -4048,15 +4192,14 @@ export const getPatientConsultationsD = async (req: Request, res: Response) => {
   }
 };
 
-// In your doctorController.ts, update the getPatientPrescriptionsD function:
-
-// Update your backend function to add logging:
 export const getPatientPrescriptionsD = async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
+    
     console.log(`Fetching prescriptions for patient ID: ${patientId}`);
     
-    const prescriptions = await db.query(`
+    // Get prescriptions with detailed information
+    const prescriptionsQuery = `
       SELECT 
         p.PrescriptionID,
         p.PrescribedDate,
@@ -4064,71 +4207,155 @@ export const getPatientPrescriptionsD = async (req: Request, res: Response) => {
         p.Status,
         u.Name AS DoctorName,
         c.ConsultationID,
-        c.Diagnosis
+        c.Diagnosis,
+        p.PatientID,
+        p.DoctorID
       FROM prescription p
       LEFT JOIN useraccount u ON p.DoctorID = u.UserID
       LEFT JOIN consultation c ON p.ConsultationID = c.ConsultationID
       WHERE p.PatientID = ?
       ORDER BY p.PrescribedDate DESC
-    `, [patientId]);
+    `;
     
-    console.log(`Found ${prescriptions.length} prescriptions`);
+    // Assuming db.query returns [rows, fields] structure
+    const [prescriptionsResult] = await db.query(prescriptionsQuery, [patientId]) as any;
     
-    // Get prescription items for each prescription
-    const prescriptionsWithItems = await Promise.all(
-      prescriptions.map(async (prescription: any) => {
-        try {
-          console.log(`Fetching items for prescription ${prescription.PrescriptionID}`);
-          
-          const items = await db.query(`
-            SELECT 
-              pi.ItemID,
-              pi.Dosage,
-              pi.Frequency,
-              pi.Duration,
-              pi.Quantity,
-              pi.Status,
-              d.DrugName,
-              d.Category
-            FROM prescriptionitem pi
-            LEFT JOIN drug d ON pi.DrugID = d.DrugID
-            WHERE pi.PrescriptionID = ?
-          `, [prescription.PrescriptionID]);
-          
-          console.log(`Found ${items.length} items for prescription ${prescription.PrescriptionID}`);
-          
-          if (items.length > 0) {
-            console.log('First item:', items[0]);
-          }
-          
-          return {
-            ...prescription,
-            items: items && items.length > 0 ? items : []
-          };
-        } catch (error) {
-          console.error(`Error fetching items for prescription ${prescription.PrescriptionID}:`, error);
-          return {
-            ...prescription,
-            items: []
-          };
-        }
-      })
-    );
+    // Type cast to array of prescriptions
+    const prescriptionsArray = prescriptionsResult as Array<{
+      PrescriptionID: number;
+      PrescribedDate: string;
+      Remarks: string;
+      Status: string;
+      DoctorName: string;
+      ConsultationID: number;
+      Diagnosis: string;
+      PatientID: number;
+      DoctorID: number;
+    }>;
     
-    console.log('Final response structure:', prescriptionsWithItems[0]);
-    res.json(prescriptionsWithItems);
+    console.log(`Found ${prescriptionsArray.length} prescriptions for patient ${patientId}`);
+    
+    // Get items for all prescriptions in one query (more efficient)
+    const prescriptionIds = prescriptionsArray.map(p => p.PrescriptionID);
+    
+    let itemsArray: Array<{
+      ItemID: number;
+      PrescriptionID: number;
+      Dosage: string;
+      Frequency: string;
+      Duration: string;
+      Quantity: number;
+      Status: string;
+      DrugID: number;
+      DrugName: string;
+      Category: string;
+    }> = [];
+    
+    if (prescriptionIds.length > 0) {
+      const placeholders = prescriptionIds.map(() => '?').join(',');
+      const itemsQuery = `
+        SELECT 
+          pi.ItemID,
+          pi.PrescriptionID,
+          pi.Dosage,
+          pi.Frequency,
+          pi.Duration,
+          pi.Quantity,
+          pi.Status,
+          d.DrugID,
+          d.DrugName,
+          d.Category
+        FROM prescriptionitem pi
+        LEFT JOIN drug d ON pi.DrugID = d.DrugID
+        WHERE pi.PrescriptionID IN (${placeholders})
+        ORDER BY pi.PrescriptionID, pi.ItemID
+      `;
+      
+      const [itemsResult] = await db.query(itemsQuery, prescriptionIds) as any;
+      itemsArray = itemsResult as Array<{
+        ItemID: number;
+        PrescriptionID: number;
+        Dosage: string;
+        Frequency: string;
+        Duration: string;
+        Quantity: number;
+        Status: string;
+        DrugID: number;
+        DrugName: string;
+        Category: string;
+      }>;
+    }
+    
+    console.log(`Found ${itemsArray.length} prescription items total`);
+    
+    // Group items by prescription ID
+    const itemsByPrescription: Record<number, Array<any>> = {};
+    itemsArray.forEach(item => {
+      if (!itemsByPrescription[item.PrescriptionID]) {
+        itemsByPrescription[item.PrescriptionID] = [];
+      }
+      itemsByPrescription[item.PrescriptionID].push({
+        ItemID: item.ItemID,
+        DrugID: item.DrugID,
+        DrugName: item.DrugName,
+        Category: item.Category,
+        Dosage: item.Dosage,
+        Frequency: item.Frequency,
+        Duration: item.Duration,
+        Quantity: item.Quantity,
+        Status: item.Status
+      });
+    });
+    
+    // Combine prescriptions with their items
+    const prescriptions = prescriptionsArray.map(prescription => {
+      const items = itemsByPrescription[prescription.PrescriptionID] || [];
+      
+      console.log(`Prescription ${prescription.PrescriptionID} has ${items.length} items`);
+      if (items.length > 0) {
+        console.log(`Items for prescription ${prescription.PrescriptionID}:`, items);
+      }
+      
+      return {
+        PrescriptionID: prescription.PrescriptionID,
+        PrescribedDate: prescription.PrescribedDate,
+        Remarks: prescription.Remarks,
+        Status: prescription.Status,
+        DoctorName: prescription.DoctorName,
+        ConsultationID: prescription.ConsultationID,
+        Diagnosis: prescription.Diagnosis,
+        PatientID: prescription.PatientID,
+        items: items
+      };
+    });
+    
+    // Debug: Log the final structure
+    console.log(`Final prescription count: ${prescriptions.length}`);
+    prescriptions.forEach((p, idx) => {
+      console.log(`Prescription ${idx} (ID: ${p.PrescriptionID}): ${p.items?.length || 0} items`);
+    });
+    
+    res.json(prescriptions);
   } catch (error) {
     console.error('Error fetching prescriptions:', error);
-    res.status(500).json({ error: 'Failed to fetch prescriptions' });
+    res.status(500).json({ 
+      error: 'Failed to fetch prescriptions',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
   }
 };
 
+// Get patient allergies
 // Get patient allergies
 export const getPatientAllergiesD = async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
     
-    const allergies = await db.query(`
+    console.log(`Fetching allergies for patient ID: ${patientId}`);
+    
+    // Extract rows properly from the query result
+    const [allergiesResult] = await db.query(`
       SELECT 
         af.AllergyFindingID,
         af.AllergyName,
@@ -4136,17 +4363,161 @@ export const getPatientAllergiesD = async (req: Request, res: Response) => {
         af.Severity,
         af.OnsetDate,
         af.Status,
-        af.Notes
+        af.Notes,
+        af.ConsultationID
       FROM allergy_findings af
       INNER JOIN consultation c ON af.ConsultationID = c.ConsultationID
       INNER JOIN patient_visit pv ON c.VisitID = pv.VisitID
       WHERE pv.PatientID = ?
-      ORDER BY af.Severity DESC, af.OnsetDate DESC
-    `, [patientId]);
+      ORDER BY 
+        CASE 
+          WHEN af.Severity = 'life-threatening' THEN 1
+          WHEN af.Severity = 'severe' THEN 2
+          WHEN af.Severity = 'moderate' THEN 3
+          WHEN af.Severity = 'mild' THEN 4
+          ELSE 5
+        END,
+        af.OnsetDate DESC
+    `, [patientId]) as any;
+    
+    // Cast to the proper type
+    const allergies = allergiesResult as Array<{
+      AllergyFindingID: number;
+      AllergyName: string;
+      Reaction: string;
+      Severity: 'mild' | 'moderate' | 'severe' | 'life-threatening';
+      OnsetDate: string;
+      Status: 'active' | 'resolved' | 'unknown';
+      Notes: string;
+      ConsultationID: number;
+    }>;
+    
+    console.log(`Found ${allergies.length} allergies for patient ${patientId}`);
     
     res.json(allergies);
   } catch (error) {
     console.error('Error fetching allergies:', error);
-    res.status(500).json({ error: 'Failed to fetch allergies' });
+    res.status(500).json({ 
+      error: 'Failed to fetch allergies',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get all patients
+export const getAllPatients2 = async (req: Request, res: Response) => {
+  try {
+    const [patients] = await db.query(`
+      SELECT 
+        p.PatientID,
+        p.Name,
+        p.ICNo,
+        p.Gender,
+        p.DOB,
+        p.PhoneNumber,
+        p.Email,
+        p.BloodType,
+        p.ChronicDisease,
+        p.Allergy,
+        p.InsuranceProvider,
+        p.InsurancePolicyNo,
+        MAX(pv.CheckInTime) AS LastVisit
+      FROM patient p
+      LEFT JOIN patient_visit pv ON p.PatientID = pv.PatientID
+      GROUP BY p.PatientID
+      ORDER BY p.Name
+    `) as any;
+
+    res.json(patients);
+  } catch (error) {
+    console.error('Error fetching patients:', error);
+    res.status(500).json({ error: 'Failed to fetch patients' });
+  }
+};
+
+// Get patient consultations
+export const getPatientConsultations = async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    
+    const [consultations] = await db.query(`
+      SELECT 
+        c.ConsultationID,
+        c.VisitID,
+        c.StartTime,
+        c.ChiefComplaint,
+        c.Diagnosis,
+        c.DiagnosisCode,
+        c.SeverityAssessment,
+        u.Name AS DoctorName,
+        pv.VisitType
+      FROM consultation c
+      LEFT JOIN useraccount u ON c.DoctorID = u.UserID
+      LEFT JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      WHERE pv.PatientID = ?
+      ORDER BY c.StartTime DESC
+      LIMIT 10
+    `, [patientId]) as any;
+
+    res.json(consultations);
+  } catch (error) {
+    console.error('Error fetching consultations:', error);
+    res.status(500).json({ error: 'Failed to fetch consultations' });
+  }
+};
+
+// Get total consultations count for the doctor
+export const getDoctorConsultationsCount = async (req: Request, res: Response) => {
+  try {
+    const doctorId = (req as any).user.userId;
+    
+    const [result] = await db.query(`
+      SELECT COUNT(*) as total
+      FROM consultation c
+      WHERE c.DoctorID = ?
+    `, [doctorId]) as any;
+    
+    res.json({ total: result[0]?.total || 0 });
+  } catch (error) {
+    console.error('Error fetching consultations count:', error);
+    res.status(500).json({ error: 'Failed to fetch consultations count' });
+  }
+};
+
+// Get total prescriptions count for the doctor
+export const getDoctorPrescriptionsCount = async (req: Request, res: Response) => {
+  try {
+    const doctorId = (req as any).user.userId;
+    
+    const [result] = await db.query(`
+      SELECT COUNT(*) as total
+      FROM prescription p
+      WHERE p.DoctorID = ?
+    `, [doctorId]) as any;
+    
+    res.json({ total: result[0]?.total || 0 });
+  } catch (error) {
+    console.error('Error fetching prescriptions count:', error);
+    res.status(500).json({ error: 'Failed to fetch prescriptions count' });
+  }
+};
+
+// Get patients with appointments count
+export const getDoctorPatientsWithAppointmentsCount = async (req: Request, res: Response) => {
+  try {
+    const doctorId = (req as any).user.userId;
+    
+    const [result] = await db.query(`
+      SELECT COUNT(DISTINCT a.PatientID) as total
+      FROM appointment a
+      WHERE a.DoctorID = ? 
+        AND a.Status IN ('scheduled', 'confirmed')
+        AND a.AppointmentDateTime >= CURDATE()
+    `, [doctorId]) as any;
+    
+    res.json({ total: result[0]?.total || 0 });
+  } catch (error) {
+    console.error('Error fetching patients with appointments count:', error);
+    res.status(500).json({ error: 'Failed to fetch patients with appointments count' });
   }
 };
