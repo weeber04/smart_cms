@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react';
 import { 
   Pill, Plus, Search, Trash2, Printer, 
-  Calendar, Clock, AlertCircle, CheckCircle
+  Calendar, Clock, AlertCircle, CheckCircle,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -619,207 +620,312 @@ export function PrescriptionTab() {
         </CardContent>
       </Card>
 
-      {/* Add Drug Dialog */}
-      <Dialog open={showAddDrug} onOpenChange={setShowAddDrug}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Add Medication</DialogTitle>
-            <DialogDescription>
-              Search and add medication to prescription
-            </DialogDescription>
-          </DialogHeader>
+      {/* Add Drug Dialog - FIXED Scrollable Version */}
+      {showAddDrug && (
+        <div className="fixed inset-0 z-50">
+          {/* Backdrop - stays in place */}
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            onClick={() => setShowAddDrug(false)}
+          />
           
-          <div className="space-y-4">
-            {/* Drug Search */}
-            <div className="space-y-2">
-              <Label>Search Medications</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 size-4 text-gray-400" />
-                <Input
-                  placeholder="Search by drug name or category..."
-                  className="pl-10"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+          {/* Main Container - properly centered with scroll */}
+          <div className="absolute inset-0 overflow-y-auto">
+            <div className="min-h-full flex items-center justify-center p-4">
+              <div className="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl flex flex-col border border-gray-200 my-8">
+                {/* Header - Fixed */}
+                <div className="shrink-0 bg-gradient-to-r from-blue-50 to-indigo-50 border-b px-5 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-white p-2 rounded-lg shadow-sm border border-blue-200">
+                        <Pill className="size-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-bold text-gray-900">Add Medication</h2>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          Search and add medication to prescription
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowAddDrug(false)}
+                      className="h-8 w-8"
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Scrollable Content Area */}
+                <div className="flex-1 overflow-y-auto max-h-[70vh] p-5">
+                  <div className="space-y-4">
+                    {/* Drug Search */}
+                    <div className="space-y-2">
+                      <Label className="text-sm">Search Medications</Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 size-4 text-gray-400" />
+                        <Input
+                          placeholder="Search by drug name or category..."
+                          className="pl-10 text-sm"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Drug Selection - Scrollable */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="max-h-[200px] overflow-y-auto">
+                        {filteredDrugs.length > 0 ? (
+                          <div className="divide-y">
+                            {filteredDrugs.map((drug) => (
+                              <div
+                                key={drug.DrugID}
+                                className={`p-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                                  newDrug.DrugID === drug.DrugID ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                                }`}
+                                onClick={() => setNewDrug({ ...newDrug, DrugID: drug.DrugID })}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <p className="font-medium text-sm text-gray-900">{drug.DrugName}</p>
+                                    <p className="text-xs text-gray-600 mt-0.5">{drug.Category}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-sm text-gray-900 font-medium">RM{drug.UnitPrice.toFixed(2)}</p>
+                                    <p className="text-xs text-gray-500">
+                                      Stock: {drug.QuantityInStock}
+                                    </p>
+                                    {drug.ExpiryDate && (
+                                      <p className="text-xs text-gray-500 mt-0.5">
+                                        Expires: {new Date(drug.ExpiryDate).toLocaleDateString()}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center text-gray-500">
+                            <p className="text-sm">No medications found</p>
+                            <p className="text-xs mt-1">Try a different search term</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Dosage Details */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm">Dosage</Label>
+                        <Input
+                          placeholder="e.g., 500mg, 1 tablet"
+                          value={newDrug.Dosage}
+                          onChange={(e) => setNewDrug({ ...newDrug, Dosage: e.target.value })}
+                          className="text-sm"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-sm">Frequency</Label>
+                        <Select
+                          value={newDrug.Frequency}
+                          onValueChange={(value) => setNewDrug({ ...newDrug, Frequency: value })}
+                        >
+                          <SelectTrigger className="text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[200px]">
+                            <SelectItem value="once daily">Once Daily</SelectItem>
+                            <SelectItem value="twice daily">Twice Daily</SelectItem>
+                            <SelectItem value="three times daily">Three Times Daily</SelectItem>
+                            <SelectItem value="four times daily">Four Times Daily</SelectItem>
+                            <SelectItem value="as needed">As Needed</SelectItem>
+                            <SelectItem value="hourly">Hourly</SelectItem>
+                            <SelectItem value="every 6 hours">Every 6 Hours</SelectItem>
+                            <SelectItem value="every 8 hours">Every 8 Hours</SelectItem>
+                            <SelectItem value="every 12 hours">Every 12 Hours</SelectItem>
+                            <SelectItem value="weekly">Weekly</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-sm">Duration</Label>
+                        <Select
+                          value={newDrug.Duration}
+                          onValueChange={(value) => setNewDrug({ ...newDrug, Duration: value })}
+                        >
+                          <SelectTrigger className="text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[200px]">
+                            <SelectItem value="3 days">3 Days</SelectItem>
+                            <SelectItem value="5 days">5 Days</SelectItem>
+                            <SelectItem value="7 days">7 Days</SelectItem>
+                            <SelectItem value="10 days">10 Days</SelectItem>
+                            <SelectItem value="14 days">14 Days</SelectItem>
+                            <SelectItem value="1 month">1 Month</SelectItem>
+                            <SelectItem value="ongoing">Ongoing</SelectItem>
+                            <SelectItem value="until finished">Until Finished</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-sm">Quantity</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={newDrug.Quantity}
+                          onChange={(e) => setNewDrug({ ...newDrug, Quantity: parseInt(e.target.value) || 1 })}
+                          className="text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Instructions */}
+                    <div className="space-y-2">
+                      <Label className="text-sm">Special Instructions</Label>
+                      <Textarea
+                        placeholder="e.g., Take with food, Avoid alcohol, etc."
+                        rows={3}
+                        value={newDrug.Instructions}
+                        onChange={(e) => setNewDrug({ ...newDrug, Instructions: e.target.value })}
+                        className="text-sm resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer with Actions */}
+                <div className="shrink-0 border-t px-5 py-4 bg-gray-50">
+                  <div className="flex justify-end gap-2">
+                    <Button onClick={handleAddDrug} className="text-sm h-9">
+                      Add to Prescription
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowAddDrug(false)}
+                      className="text-sm h-9 border-gray-300"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* Drug Selection */}
-            <div className="border rounded-lg max-h-[200px] overflow-y-auto">
-              {filteredDrugs.length > 0 ? (
-                <div className="divide-y">
-                  {filteredDrugs.map((drug) => (
-                    <div
-                      key={drug.DrugID}
-                      className={`p-3 cursor-pointer hover:bg-gray-50 ${
-                        newDrug.DrugID === drug.DrugID ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                      }`}
-                      onClick={() => setNewDrug({ ...newDrug, DrugID: drug.DrugID })}
+      {/* Confirm Print Dialog - FIXED */}
+      {showConfirmPrint && (
+        <div className="fixed inset-0 z-50">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+            onClick={() => setShowConfirmPrint(false)}
+          />
+          
+          {/* Main Container */}
+          <div className="absolute inset-0 overflow-y-auto">
+            <div className="min-h-full flex items-center justify-center p-4">
+              <div className="relative max-w-md w-full bg-white rounded-xl shadow-2xl flex flex-col border border-gray-200 my-8">
+                {/* Header */}
+                <div className="shrink-0 bg-gradient-to-r from-blue-50 to-indigo-50 border-b px-5 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-white p-2 rounded-lg shadow-sm border border-blue-200">
+                        <Printer className="size-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-bold text-gray-900">Print Prescription</h2>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          Are you ready to print the prescription?
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowConfirmPrint(false)}
+                      className="h-8 w-8"
                     >
-                      <div className="flex justify-between items-start">
+                      <X className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Scrollable Content */}
+                <div className="flex-1 overflow-y-auto max-h-[60vh] p-5">
+                  <div className="space-y-4">
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="size-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                         <div>
-                          <p className="font-medium text-gray-900">{drug.DrugName}</p>
-                          <p className="text-sm text-gray-600">{drug.Category}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm text-gray-900">RM{drug.UnitPrice.toFixed(2)}</p>
-                          <p className="text-xs text-gray-500">
-                            Stock: {drug.QuantityInStock}
-                          </p>
-                          {drug.ExpiryDate && (
-                            <p className="text-xs text-gray-500">
-                              Expires: {new Date(drug.ExpiryDate).toLocaleDateString()}
-                            </p>
-                          )}
+                          <p className="font-medium text-yellow-800 text-sm">Before printing, please verify:</p>
+                          <ul className="text-xs text-yellow-700 mt-2 space-y-1 pl-1">
+                            <li>• All medications are correctly prescribed</li>
+                            <li>• Dosage and frequency are appropriate</li>
+                            <li>• Patient allergies have been checked</li>
+                            <li>• Instructions are clear for the patient</li>
+                          </ul>
                         </div>
                       </div>
                     </div>
-                  ))}
+                    
+                    {selectedPatient?.Allergies && selectedPatient.Allergies.length > 0 && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="size-4 text-red-600 flex-shrink-0 mt-0.5" />
+                          <p className="text-xs text-red-700">
+                            <strong>⚠️ Allergy Alert:</strong> Patient has {selectedPatient.Allergies.length} recorded allergy(ies): {selectedPatient.Allergies.join(', ')}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {prescriptionItems.length > 0 && (
+                      <div className="border rounded-lg p-3">
+                        <p className="font-medium text-sm text-gray-900 mb-2">Prescription Summary:</p>
+                        <div className="space-y-1 text-xs text-gray-600">
+                          <p>• {prescriptionItems.length} medication(s) to print</p>
+                          <p>• Total quantity: {prescriptionItems.reduce((sum, item) => sum + item.Quantity, 0)} items</p>
+                          <p>• Total cost: RM{calculateTotal().toFixed(2)}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                <div className="p-4 text-center text-gray-500">
-                  <p>No medications found</p>
+
+                {/* Footer with Actions */}
+                <div className="shrink-0 border-t px-5 py-4 bg-gray-50">
+                  <div className="flex justify-end gap-2">
+                    <Button 
+                      onClick={handlePrintPrescription} 
+                      className="bg-blue-600 hover:bg-blue-700 text-sm h-9"
+                    >
+                      <Printer className="size-4 mr-2" />
+                      Print Prescription
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowConfirmPrint(false)}
+                      className="text-sm h-9 border-gray-300"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-              )}
-            </div>
-
-            {/* Dosage Details */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Dosage</Label>
-                <Input
-                  placeholder="e.g., 500mg, 1 tablet"
-                  value={newDrug.Dosage}
-                  onChange={(e) => setNewDrug({ ...newDrug, Dosage: e.target.value })}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Frequency</Label>
-                <Select
-                  value={newDrug.Frequency}
-                  onValueChange={(value) => setNewDrug({ ...newDrug, Frequency: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="once daily">Once Daily</SelectItem>
-                    <SelectItem value="twice daily">Twice Daily</SelectItem>
-                    <SelectItem value="three times daily">Three Times Daily</SelectItem>
-                    <SelectItem value="four times daily">Four Times Daily</SelectItem>
-                    <SelectItem value="as needed">As Needed</SelectItem>
-                    <SelectItem value="hourly">Hourly</SelectItem>
-                    <SelectItem value="every 6 hours">Every 6 Hours</SelectItem>
-                    <SelectItem value="every 8 hours">Every 8 Hours</SelectItem>
-                    <SelectItem value="every 12 hours">Every 12 Hours</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Duration</Label>
-                <Select
-                  value={newDrug.Duration}
-                  onValueChange={(value) => setNewDrug({ ...newDrug, Duration: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="3 days">3 Days</SelectItem>
-                    <SelectItem value="5 days">5 Days</SelectItem>
-                    <SelectItem value="7 days">7 Days</SelectItem>
-                    <SelectItem value="10 days">10 Days</SelectItem>
-                    <SelectItem value="14 days">14 Days</SelectItem>
-                    <SelectItem value="1 month">1 Month</SelectItem>
-                    <SelectItem value="ongoing">Ongoing</SelectItem>
-                    <SelectItem value="until finished">Until Finished</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Quantity</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={newDrug.Quantity}
-                  onChange={(e) => setNewDrug({ ...newDrug, Quantity: parseInt(e.target.value) || 1 })}
-                />
               </div>
             </div>
-
-            {/* Instructions */}
-            <div className="space-y-2">
-              <Label>Special Instructions</Label>
-              <Textarea
-                placeholder="e.g., Take with food, Avoid alcohol, etc."
-                rows={2}
-                value={newDrug.Instructions}
-                onChange={(e) => setNewDrug({ ...newDrug, Instructions: e.target.value })}
-              />
-            </div>
-
-            <DialogFooter>
-              <Button onClick={handleAddDrug}>
-                Add to Prescription
-              </Button>
-              <Button variant="outline" onClick={() => setShowAddDrug(false)}>
-                Cancel
-              </Button>
-            </DialogFooter>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Confirm Print Dialog */}
-      <Dialog open={showConfirmPrint} onOpenChange={setShowConfirmPrint}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Print Prescription</DialogTitle>
-            <DialogDescription>
-              Are you ready to print the prescription for {selectedPatient?.Name}?
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="size-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-yellow-800">Before printing, please verify:</p>
-                  <ul className="text-sm text-yellow-700 mt-2 space-y-1">
-                    <li>• All medications are correctly prescribed</li>
-                    <li>• Dosage and frequency are appropriate</li>
-                    <li>• Patient allergies have been checked</li>
-                    <li>• Instructions are clear for the patient</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            
-            {selectedPatient?.Allergies && selectedPatient.Allergies.length > 0 && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-700">
-                  <strong>⚠️ Allergy Alert:</strong> Patient has {selectedPatient.Allergies.length} recorded allergy(ies)
-                </p>
-              </div>
-            )}
-            
-            <DialogFooter>
-              <Button onClick={handlePrintPrescription} className="bg-blue-600 hover:bg-blue-700">
-                <Printer className="size-4 mr-2" />
-                Print Prescription
-              </Button>
-              <Button variant="outline" onClick={() => setShowConfirmPrint(false)}>
-                Cancel
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }

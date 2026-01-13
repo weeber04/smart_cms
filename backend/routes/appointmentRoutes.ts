@@ -12,7 +12,9 @@ import {
   scheduleAppointment,
   updateAppointment,
   getDoctorDailySchedule,
-  checkBulkAvailability
+  checkBulkAvailability,
+  getAllAppointments,
+  searchAppointments
 } from '../controllers/appointmentController';
 
 const router = express.Router();
@@ -28,8 +30,12 @@ router.post('/reschedule', rescheduleAppointment);
 router.get('/doctor-availability', getDoctorAvailability);
 router.post('/check-slot-availability', checkTimeSlotAvailability);
 router.post('/schedule', scheduleAppointment); // Use this instead of old schedule-appointment
-router.put('/update', updateAppointment);
 router.get('/doctor-schedule', getDoctorDailySchedule);
 router.post('/bulk-availability', checkBulkAvailability);
+
+router.get('/search', searchAppointments);
+router.get('/all', getAllAppointments);           // GET /api/appointments/all
+router.put('/update/:id', updateAppointment);
+
 
 export default router;

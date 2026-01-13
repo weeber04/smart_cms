@@ -1,6 +1,7 @@
-// controllers/receptionistController.ts
-import { Request, Response } from "express";
+import { Request, Response } from 'express';
+import { ResultSetHeader, RowDataPacket } from 'mysql2'; // Add this import
 import { db } from "../db";
+import bcrypt from 'bcryptjs';
 
 // ============ PATIENT MANAGEMENT ============
 export const registerPatient = async (req: Request, res: Response) => {
@@ -667,44 +668,6 @@ export const getAppointments = async (req: Request, res: Response) => {
   }
 };
 
-export const cancelAppointment = async (req: Request, res: Response) => {
-  const { appointmentId, reason } = req.body;
-  
-  try {
-    await db.query("START TRANSACTION");
-    
-    // Cancel appointment
-    await db.query(`
-      UPDATE appointment 
-      SET Status = 'cancelled', Notes = CONCAT(COALESCE(Notes, ''), '\nCancelled: ', ?)
-      WHERE AppointmentID = ?
-    `, [reason || 'No reason provided', appointmentId]);
-    
-    // Also update any related visits
-    await db.query(`
-      UPDATE patient_visit 
-      SET 
-        VisitStatus = 'cancelled',
-        QueueStatus = 'cancelled',
-        VisitNotes = CONCAT(COALESCE(VisitNotes, ''), '\nAppointment cancelled')
-      WHERE AppointmentID = ?
-    `, [appointmentId]);
-    
-    await db.query("COMMIT");
-    
-    res.json({
-      success: true,
-      message: "Appointment cancelled successfully"
-    });
-  } catch (error: any) {
-    await db.query("ROLLBACK");
-    console.error("Cancel appointment error:", error);
-    res.status(500).json({ 
-      success: false,
-      error: "Failed to cancel appointment"
-    });
-  }
-};
 
 // ============ WAITING LIST / CHECK-IN ============
 export const getTodayVisits = async (req: Request, res: Response) => {
@@ -1493,164 +1456,6 @@ export const getServices = async (req: Request, res: Response) => {
   }
 };
 
-// receptionistController.ts - Updated billing logic
-export const createBillingForConsultation = async (req: Request, res: Response) => {
-  const {
-    consultationId,
-    patientId,
-    insuranceCoverage = 0,
-    receptionistId
-  } = req.body;
-
-  if (!consultationId || !patientId || !receptionistId) {
-    return res.status(400).json({
-      error: "Missing required fields: consultationId, patientId, receptionistId"
-    });
-  }
-
-  const connection = await db.getConnection();
-  
-  try {
-    await connection.beginTransaction();
-
-    // 1. Get consultation details
-    const [consultation]: any = await connection.query(`
-      SELECT 
-        c.*, 
-        pv.VisitID,
-        d.Specialization,
-        u.Name AS DoctorName
-      FROM consultation c
-      JOIN patient_visit pv ON c.VisitID = pv.VisitID
-      JOIN doctorprofile d ON c.DoctorID = d.DoctorID
-      JOIN useraccount u ON c.DoctorID = u.UserID
-      WHERE c.ConsultationID = ? AND pv.PatientID = ?
-    `, [consultationId, patientId]);
-
-    if (consultation.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ error: "Consultation not found for this patient" });
-    }
-
-    const consultationData = consultation[0];
-
-    // 2. Get prescription details and calculate medication costs
-    const [prescriptionItems]: any = await connection.query(`
-      SELECT 
-        pi.*,
-        d.DrugName,
-        d.UnitPrice,
-        d.QuantityInStock,
-        (pi.Quantity * d.UnitPrice) AS ItemTotal
-      FROM prescription p
-      JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
-      JOIN drug d ON pi.DrugID = d.DrugID
-      WHERE p.ConsultationID = ? AND p.PatientID = ?
-    `, [consultationId, patientId]);
-
-    // 3. Calculate totals
-    const consultationFee = 150.00; // Fixed consultation fee
-    const medicationTotal = prescriptionItems.reduce((sum: number, item: any) => 
-      sum + (item.Quantity * item.UnitPrice), 0);
-    
-    const subtotal = consultationFee + medicationTotal;
-    const patientResponsibility = subtotal - insuranceCoverage;
-
-    // 4. Create billing record
-    const [billingResult]: any = await connection.query(`
-      INSERT INTO billing (
-        PatientID, ConsultationID, TotalAmount, AmountDue, AmountPaid,
-        InsuranceCoverage, PatientResponsibility, BillingDate, DueDate,
-        Status, HandledBy
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), 
-                DATE_ADD(CURDATE(), INTERVAL 30 DAY), 'pending', ?)
-    `, [
-      patientId,
-      consultationId,
-      subtotal,
-      patientResponsibility,
-      0,
-      insuranceCoverage,
-      patientResponsibility,
-      receptionistId
-    ]);
-
-    const billId = billingResult.insertId;
-
-    // 5. Add billing items
-    // 5a. Consultation fee
-    await connection.query(`
-      INSERT INTO billingitem (
-        BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
-      ) VALUES (?, ?, 1, ?, ?, ?)
-    `, [
-      billId,
-      1, // Consultation service ID (from service table)
-      consultationFee,
-      consultationFee,
-      `Consultation with Dr. ${consultationData.DoctorName} (${consultationData.Specialization})`
-    ]);
-
-    // 5b. Medication items
-    for (const item of prescriptionItems) {
-      await connection.query(`
-        INSERT INTO billingitem (
-          BillID, ServiceID, Quantity, UnitPrice, TotalAmount, Description
-        ) VALUES (?, NULL, ?, ?, ?, ?)
-      `, [
-        billId,
-        item.Quantity,
-        item.UnitPrice,
-        item.ItemTotal,
-        `${item.DrugName} - ${item.Dosage} (${item.Frequency} for ${item.Duration})`
-      ]);
-    }
-
-    // 6. Update visit status to 'completed'
-    await connection.query(`
-      UPDATE patient_visit 
-      SET VisitStatus = 'completed', UpdatedAt = NOW()
-      WHERE VisitID = ?
-    `, [consultationData.VisitID]);
-
-    // 7. Update prescription status if exists
-    if (prescriptionItems.length > 0) {
-      await connection.query(`
-        UPDATE prescription 
-        SET Remarks = CONCAT(IFNULL(Remarks, ''), 
-            '\n\nBilling Information:\n- Bill ID: ${billId}\n- Total: $${subtotal.toFixed(2)}')
-        WHERE ConsultationID = ? AND PatientID = ?
-      `, [consultationId, patientId]);
-    }
-
-    await connection.commit();
-
-    res.json({
-      success: true,
-      billId,
-      message: "Billing created successfully",
-      billingSummary: {
-        consultationFee: consultationFee,
-        medicationTotal: medicationTotal,
-        subtotal: subtotal,
-        insuranceCoverage: insuranceCoverage,
-        patientResponsibility: patientResponsibility,
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      }
-    });
-
-  } catch (error) {
-    await connection.rollback();
-    console.error("Create billing error:", error);
-    res.status(500).json({ 
-      error: "Failed to create billing",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  } finally {
-    connection.release();
-  }
-};
-
 // receptionistController.ts
 export const processPaymentForBilling = async (req: Request, res: Response) => {
   const {
@@ -1834,7 +1639,7 @@ export const processPaymentForBilling = async (req: Request, res: Response) => {
   }
 };
 
-// receptionistController.ts
+// Updated endpoint: Get patients to bill (simplified)
 export const getPatientsToBill = async (req: Request, res: Response) => {
   try {
     const [patients]: any = await db.query(`
@@ -1850,15 +1655,6 @@ export const getPatientsToBill = async (req: Request, res: Response) => {
         u.Name AS DoctorName,
         d.Specialization,
         pv.VisitNotes,
-        -- Check if prescription exists
-        (SELECT COUNT(*) FROM prescription pr 
-         WHERE pr.ConsultationID = c.ConsultationID) AS HasPrescription,
-        -- Get prescription details if exists
-        (SELECT GROUP_CONCAT(drg.DrugName SEPARATOR ', ') 
-         FROM prescription pr2
-         JOIN prescriptionitem pri ON pr2.PrescriptionID = pri.PrescriptionID
-         JOIN drug drg ON pri.DrugID = drg.DrugID
-         WHERE pr2.ConsultationID = c.ConsultationID) AS Medications,
         -- Check if billing already exists
         (SELECT COUNT(*) FROM billing b 
          WHERE b.ConsultationID = c.ConsultationID) AS HasBilling
@@ -1867,12 +1663,11 @@ export const getPatientsToBill = async (req: Request, res: Response) => {
       JOIN consultation c ON pv.VisitID = c.VisitID
       JOIN useraccount u ON c.DoctorID = u.UserID
       JOIN doctorprofile d ON c.DoctorID = d.DoctorID
-      WHERE pv.VisitStatus IN ('to-be-billed', 'waiting-prescription')
+      WHERE pv.VisitStatus = 'to-be-billed'
         AND c.EndTime IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM billing b 
           WHERE b.ConsultationID = c.ConsultationID 
-            AND b.Status IN ('pending', 'partial', 'paid')
         )
       ORDER BY pv.ArrivalTime DESC
     `);
@@ -2027,5 +1822,972 @@ export const createBillingFromPatient = async (req: Request, res: Response) => {
       error: "Failed to create billing",
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  }
+};
+
+// controllers/receptionistController.ts
+export const getPatientBillDetails = async (req: Request, res: Response) => {
+  try {
+    const { consultationId } = req.params;
+    
+    // Get consultation details
+    const [consultationDetails]: any = await db.query(`
+      SELECT 
+        c.ConsultationID,
+        c.VisitID,
+        c.DoctorID,
+        c.StartTime,
+        c.EndTime,
+        c.Diagnosis,
+        c.DiagnosisCode,
+        pv.PatientID,
+        p.Name AS PatientName,
+        p.ICNo,
+        p.InsuranceProvider,
+        p.InsurancePolicyNo,
+        u.Name AS DoctorName,
+        dp.Specialization,
+        pv.VisitType,
+        pv.ArrivalTime,
+        pv.VisitStatus,
+        (SELECT COUNT(*) FROM billing b 
+         WHERE b.ConsultationID = c.ConsultationID) AS HasBilling
+      FROM consultation c
+      JOIN patient_visit pv ON c.VisitID = pv.VisitID
+      JOIN patient p ON pv.PatientID = p.PatientID
+      JOIN useraccount u ON c.DoctorID = u.UserID
+      LEFT JOIN doctorprofile dp ON c.DoctorID = dp.DoctorID
+      WHERE c.ConsultationID = ?
+    `, [consultationId]);
+    
+    if (!consultationDetails || consultationDetails.length === 0) {
+      return res.status(404).json({ error: 'Consultation not found' });
+    }
+    
+    const result = consultationDetails[0];
+    
+    // Get prescription details if exists
+    const [prescriptionDetails]: any = await db.query(`
+      SELECT 
+        pr.PrescriptionID,
+        COUNT(pi.ItemID) AS ItemCount,
+        GROUP_CONCAT(d.DrugName SEPARATOR ', ') AS Medications
+      FROM prescription pr
+      LEFT JOIN prescriptionitem pi ON pr.PrescriptionID = pi.PrescriptionID
+      LEFT JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE pr.ConsultationID = ?
+      GROUP BY pr.PrescriptionID
+    `, [consultationId]);
+    
+    // Get consultation fee
+    const [consultationService]: any = await db.query(`
+      SELECT StandardFee FROM service 
+      WHERE ServiceName LIKE '%Consultation%' 
+      ORDER BY StandardFee DESC LIMIT 1
+    `);
+    
+    const consultationFee = consultationService && consultationService.length > 0 
+      ? parseFloat(consultationService[0].StandardFee) 
+      : 150.00;
+    
+    // Calculate medication cost
+    const medicationCost = 0; // Default to 0, can be calculated if needed
+    
+    const subtotal = consultationFee + medicationCost;
+    const insuranceCoverage = 0;
+    const patientResponsibility = subtotal - insuranceCoverage;
+    
+    res.json({
+      consultation: result,
+      prescription: prescriptionDetails && prescriptionDetails.length > 0 ? prescriptionDetails[0] : null,
+      billSummary: {
+        consultationFee,
+        medicationCost,
+        subtotal,
+        insuranceCoverage,
+        patientResponsibility
+      }
+    });
+    
+  } catch (error) {
+    console.error('Bill details error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch bill details',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const createBillingForConsultation = async (req: Request, res: Response) => {
+  console.log('=== START createBillingForConsultation ===');
+  console.log('Request body:', req.body);
+  
+  try {
+    const { 
+      consultationId, 
+      patientId,
+      receptionistId, 
+      insuranceCoverage = 0, 
+      consultationFee = 150, 
+      medicationTotal = 0,
+      paymentMethod = 'cash'
+    } = req.body;
+    
+    console.log(`Processing consultation: ${consultationId}, patient: ${patientId}`);
+    
+    if (!consultationId || !patientId || !receptionistId) {
+      console.error('Missing required fields');
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Check if billing already exists
+    const [existingBilling] = await db.query<RowDataPacket[]>(
+      'SELECT BillID FROM billing WHERE ConsultationID = ?',
+      [consultationId]
+    );
+    
+    if (existingBilling && existingBilling.length > 0) {
+      console.log(`Billing already exists for consultation ${consultationId}`);
+      return res.status(400).json({ 
+        error: 'Billing already exists for this consultation',
+        billId: existingBilling[0].BillID
+      });
+    }
+    
+    // Check consultation exists and get VisitID
+    console.log(`Checking consultation ${consultationId}...`);
+    const [consultationCheck] = await db.query<RowDataPacket[]>(
+      'SELECT VisitID, DoctorID FROM consultation WHERE ConsultationID = ?',
+      [consultationId]
+    );
+    
+    if (!consultationCheck || consultationCheck.length === 0) {
+      console.error(`CONSULTATION NOT FOUND: No consultation with ID ${consultationId}`);
+      return res.status(404).json({ error: `Consultation ${consultationId} not found` });
+    }
+    
+    const visitId = consultationCheck[0].VisitID;
+    const doctorId = consultationCheck[0].DoctorID;
+    
+    console.log(`Consultation found. VisitID: ${visitId}, DoctorID: ${doctorId}`);
+    console.log(`PatientID from request: ${patientId}`);
+    
+    // Try to find an appointment for this consultation
+    let appointmentId: number | null = null;
+    
+    try {
+      const [appointmentData] = await db.query<RowDataPacket[]>(`
+        SELECT pv.AppointmentID 
+        FROM patient_visit pv
+        WHERE pv.VisitID = ?
+      `, [visitId]);
+      
+      if (appointmentData && appointmentData.length > 0) {
+        appointmentId = appointmentData[0].AppointmentID;
+        console.log(`Found AppointmentID: ${appointmentId} for VisitID: ${visitId}`);
+      } else {
+        console.log(`No AppointmentID found for VisitID: ${visitId}`);
+      }
+    } catch (error) {
+      console.log('Error finding appointment:', error);
+    }
+    
+    // Calculate totals
+    const totalAmount = parseFloat(consultationFee.toString()) + parseFloat(medicationTotal.toString());
+    const insuranceCoverageAmount = parseFloat(insuranceCoverage.toString());
+    const patientResponsibility = totalAmount - insuranceCoverageAmount;
+    
+    // Generate dates
+    const billingDate = new Date();
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 30);
+    
+    // Mark as PAID
+    const status = 'paid';
+    const amountPaid = patientResponsibility;
+    
+    console.log(`Creating bill. Total: ${totalAmount}, Patient Responsibility: ${patientResponsibility}`);
+    
+    // Insert into billing table
+    const [billingResult] = await db.query<ResultSetHeader>(`
+      INSERT INTO billing (
+        TotalAmount, 
+        AmountDue, 
+        AmountPaid, 
+        InsuranceCoverage, 
+        PatientResponsibility,
+        BillingDate, 
+        DueDate, 
+        Status, 
+        PatientID, 
+        AppointmentID,
+        ConsultationID, 
+        HandledBy,
+        PaymentMethod,
+        PaymentDate
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      totalAmount,
+      0,
+      amountPaid,
+      insuranceCoverageAmount,
+      patientResponsibility,
+      billingDate,
+      dueDate,
+      status,
+      patientId,
+      appointmentId,
+      consultationId,
+      receptionistId,
+      paymentMethod,
+      billingDate
+    ]);
+    
+    const billId = billingResult.insertId;
+    console.log(`Bill created with ID: ${billId}`);
+    
+    // Create payment record if amount paid > 0
+    if (amountPaid > 0) {
+      await db.query<ResultSetHeader>(`
+        INSERT INTO payment (
+          BillID,
+          AmountPaid,
+          PaymentMethod,
+          PaymentDate,
+          ProcessedBy,
+          TransactionID,
+          Notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [
+        billId,
+        amountPaid,
+        paymentMethod,
+        billingDate,
+        receptionistId,
+        `PAY-${billId}-${Date.now()}`,
+        `Payment received for consultation #${consultationId}`
+      ]);
+      console.log(`Payment record created for bill ${billId}`);
+    }
+    
+    // DEBUG: Check current visit status BEFORE update
+    const [visitCheckBefore] = await db.query<RowDataPacket[]>(
+      'SELECT VisitID, VisitStatus, QueueStatus, PatientID FROM patient_visit WHERE VisitID = ?',
+      [visitId]
+    );
+    
+    if (!visitCheckBefore || visitCheckBefore.length === 0) {
+      console.error(`VISIT NOT FOUND: No patient_visit with VisitID ${visitId}`);
+    } else {
+      console.log(`Before update - VisitID: ${visitCheckBefore[0].VisitID}, ` +
+                  `VisitStatus: ${visitCheckBefore[0].VisitStatus}, ` +
+                  `QueueStatus: ${visitCheckBefore[0].QueueStatus}, ` +
+                  `PatientID: ${visitCheckBefore[0].PatientID}`);
+    }
+    
+    // Update patient visit status AND queue status
+    console.log(`Updating patient_visit: VisitStatus to 'completed', QueueStatus to 'completed' for VisitID: ${visitId}`);
+    
+    try {
+      const [updateResult] = await db.query<ResultSetHeader>(
+        `UPDATE patient_visit 
+         SET VisitStatus = 'completed',
+             QueueStatus = 'completed',
+             UpdatedAt = NOW()
+         WHERE VisitID = ?`,
+        [visitId]
+      );
+      
+      console.log(`Update result: ${updateResult.affectedRows} row(s) affected`);
+      
+      if (updateResult.affectedRows === 0) {
+        console.error(`WARNING: No rows updated for VisitID ${visitId}`);
+        
+        // Check what status values are allowed
+        const [visitStatusInfo] = await db.query<RowDataPacket[]>(`
+          SHOW COLUMNS FROM patient_visit WHERE Field = 'VisitStatus'
+        `);
+        console.log('VisitStatus allowed values:', visitStatusInfo[0]?.Type);
+        
+        const [queueStatusInfo] = await db.query<RowDataPacket[]>(`
+          SHOW COLUMNS FROM patient_visit WHERE Field = 'QueueStatus'
+        `);
+        console.log('QueueStatus allowed values:', queueStatusInfo[0]?.Type);
+      }
+      
+    } catch (updateError) {
+      console.error('ERROR updating patient_visit:', updateError);
+    }
+    
+    // DEBUG: Verify the update
+    const [verifyUpdate] = await db.query<RowDataPacket[]>(
+      'SELECT VisitStatus, QueueStatus FROM patient_visit WHERE VisitID = ?',
+      [visitId]
+    );
+    
+    if (verifyUpdate && verifyUpdate.length > 0) {
+      console.log(`VERIFIED: ` +
+                  `New VisitStatus is: ${verifyUpdate[0].VisitStatus}, ` +
+                  `New QueueStatus is: ${verifyUpdate[0].QueueStatus}`);
+    }
+    
+    console.log('=== END createBillingForConsultation ===');
+    
+    res.json({
+      success: true,
+      billId: billId,
+      status: status,
+      visitId: visitId,
+      appointmentId: appointmentId,
+      visitStatusUpdated: verifyUpdate?.[0]?.VisitStatus === 'completed',
+      queueStatusUpdated: verifyUpdate?.[0]?.QueueStatus === 'completed',
+      message: `Bill created, visit marked as completed, and queue status updated successfully`
+    });
+    
+  } catch (error) {
+    console.error('=== ERROR in createBillingForConsultation ===');
+    console.error('Full error:', error);
+    console.error('=== END ERROR ===');
+    
+    const err = error as any;
+    if (err.errno === 1054) {
+      return res.status(500).json({ 
+        error: 'Database column error',
+        details: err.sqlMessage,
+        suggestion: 'Check if QueueStatus column exists in patient_visit table'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to create billing',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      code: err.code || 'UNKNOWN_ERROR'
+    });
+  }
+};
+
+export const getConsultationDetails = async (req: Request, res: Response) => {
+  try {
+    const { consultationId } = req.params;
+    
+    if (!consultationId || isNaN(Number(consultationId))) {
+      return res.status(400).json({ error: 'Valid consultation ID is required' });
+    }
+
+    const query = `
+      SELECT 
+        c.*,
+        CONCAT(u.Name, ' (', dp.Specialization, ')') as DoctorName,
+        u.Name as DoctorFullName,
+        dp.Specialization
+      FROM consultation c
+      LEFT JOIN useraccount u ON c.DoctorID = u.UserID
+      LEFT JOIN doctorprofile dp ON c.DoctorID = dp.DoctorID
+      WHERE c.ConsultationID = ?
+    `;
+    
+    // Cast the result as any first, then access the array
+    const result = await db.execute(query, [consultationId]) as any;
+    const rows = result[0]; // First element is the rows array
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Consultation not found' });
+    }
+    
+    const consultation = rows[0];
+    if (consultation.PhysicalExamFindings && typeof consultation.PhysicalExamFindings === 'string') {
+      try {
+        consultation.PhysicalExamFindings = JSON.parse(consultation.PhysicalExamFindings);
+      } catch (e) {
+        console.warn('Failed to parse PhysicalExamFindings JSON:', e);
+      }
+    }
+    
+    res.json(consultation);
+  } catch (error) {
+    console.error('Error fetching consultation details:', error);
+    res.status(500).json({ error: 'Failed to fetch consultation details' });
+  }
+};
+
+export const getPrescriptionDetails = async (req: Request, res: Response) => {
+  try {
+    const { consultationId } = req.params;
+    
+    const query = `
+      SELECT 
+        p.PrescriptionID as prescriptionId,
+        COUNT(pi.ItemID) as itemCount,
+        GROUP_CONCAT(d.DrugName SEPARATOR ', ') as medications
+      FROM prescription p
+      LEFT JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      LEFT JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE p.ConsultationID = ?
+      GROUP BY p.PrescriptionID
+    `;
+    
+    const [rows] = await db.execute(query, [consultationId]) as [any[], any];
+    
+    if (rows.length === 0) {
+      return res.json(null); // Return null if no prescription
+    }
+    
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching prescription details:', error);
+    res.status(500).json({ error: 'Failed to fetch prescription details' });
+  }
+};
+
+export const getMedicationCost = async (req: Request, res: Response) => {
+  try {
+    const { consultationId } = req.params;
+    
+    const query = `
+      SELECT 
+        SUM(d.UnitPrice * pi.Quantity) as totalCost
+      FROM prescription p
+      JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE p.ConsultationID = ?
+    `;
+    
+    const [rows] = await db.execute(query, [consultationId]) as [any[], any];
+    
+    res.json({ totalCost: rows[0]?.totalCost || 0 });
+  } catch (error) {
+    console.error('Error fetching medication cost:', error);
+    res.status(500).json({ error: 'Failed to fetch medication cost' });
+  }
+};
+
+export const getPatientBillingInfo = async (req: Request, res: Response) => {
+  try {
+    const { patientId, consultationId } = req.params;
+    
+    // Check if billing already exists for this consultation
+    const billingQuery = `
+      SELECT COUNT(*) as hasBilling
+      FROM billing
+      WHERE PatientID = ? AND ConsultationID = ?
+    `;
+    
+    const [billingRows] = await db.execute(billingQuery, [patientId, consultationId]) as [any[], any];
+    
+    // Get patient insurance info
+    const patientQuery = `
+      SELECT InsuranceProvider, InsurancePolicyNo, InsuranceName
+      FROM patient
+      WHERE PatientID = ?
+    `;
+    
+    const [patientRows] = await db.execute(patientQuery, [patientId]) as [any[], any];
+    
+    res.json({
+      hasBilling: billingRows[0]?.hasBilling || 0,
+      insuranceInfo: patientRows[0] || null
+    });
+  } catch (error) {
+    console.error('Error fetching patient billing info:', error);
+    res.status(500).json({ error: 'Failed to fetch patient billing info' });
+  }
+};
+
+// In your backend (Node.js/Express example)
+  export const medicationItems = async (req: Request, res: Response) => {
+  try {
+    const { consultationId } = req.params;
+    
+    const query = `
+      SELECT 
+        pm.PrescriptionMedicationID as medicationId,
+        m.MedicationName as medicationName,
+        pm.Dosage,
+        pm.Quantity,
+        m.UnitPrice,
+        (pm.Quantity * m.UnitPrice) as totalCost
+      FROM PrescriptionMedications pm
+      JOIN Medications m ON pm.MedicationID = m.MedicationID
+      JOIN Prescriptions p ON pm.PrescriptionID = p.PrescriptionID
+      WHERE p.ConsultationID = ?
+    `;
+    
+    const [medicationItems] = await db.execute(query, [consultationId]);
+    
+    res.json(medicationItems);
+  } catch (error) {
+    console.error('Error fetching medication items:', error);
+    res.status(500).json({ error: 'Failed to fetch medication items' });
+  }
+};
+
+// backend/controllers/receptionistController.ts
+export const sendAppointmentReminder = async (req: Request, res: Response) => {
+  try {
+    const { 
+      appointmentId, 
+      patientAccountId, 
+      patientName, 
+      appointmentDateTime,
+      doctorName,
+      method, 
+      message,
+      receptionistId 
+    } = req.body;
+
+    if (!appointmentId || !patientAccountId || !patientName || !method) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Create notification title based on method
+    const title = `Appointment Reminder - ${method.toUpperCase()}`;
+    
+    // Format the notification message
+    const formattedMessage = message || 
+      `Reminder: You have an appointment with Dr. ${doctorName} on ` +
+      `${new Date(appointmentDateTime).toLocaleDateString()} at ` +
+      `${new Date(appointmentDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    // Insert into notification table
+    const [notificationResult] = await db.query<ResultSetHeader>(`
+      INSERT INTO notification (
+        Title,
+        Message,
+        Type,
+        Status,
+        CreatedAt,
+        PatientAccountID
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      title,
+      formattedMessage,
+      'appointment_reminder',
+      'sent',
+      new Date(),
+      patientAccountId
+    ]);
+
+    const notificationId = notificationResult.insertId;
+
+    res.json({
+      success: true,
+      notificationId: notificationId,
+      message: 'Reminder sent successfully'
+    });
+
+  } catch (error) {
+    console.error('Send reminder error:', error);
+    res.status(500).json({ 
+      error: 'Failed to send reminder',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const getUpcomingAppointments = async (req: Request, res: Response) => {
+  try {
+    // Get the query parameter to filter by patient account status
+    const { hasAccount } = req.query;
+    
+    let query = `
+      SELECT 
+        a.AppointmentID,
+        a.AppointmentDateTime,
+        a.Purpose,
+        a.Status,
+        a.QueueNumber,
+        p.PatientID,
+        p.Name as PatientName,
+        p.Email as PatientEmail,
+        p.PhoneNumber as PatientPhone,
+        pa.PatientAccountID,
+        d.Specialization as DoctorSpecialization,
+        u.Name as DoctorName
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN patientaccount pa ON p.PatientID = pa.PatientID
+      JOIN doctorprofile d ON a.DoctorID = d.DoctorID
+      JOIN useraccount u ON d.DoctorID = u.UserID
+      WHERE a.Status = 'scheduled' 
+        AND a.AppointmentDateTime BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 48 HOUR)
+        AND a.AppointmentDateTime > NOW()
+    `;
+    
+    // Apply filter based on query parameter - ONLY if provided
+    if (hasAccount === 'true') {
+      query += ` AND pa.PatientAccountID IS NOT NULL`;
+    } else if (hasAccount === 'false') {
+      query += ` AND pa.PatientAccountID IS NULL`;
+    }
+    // If hasAccount is undefined, don't apply any filter
+    
+    query += ` ORDER BY a.AppointmentDateTime ASC`;
+    
+    const [appointments] = await db.query<RowDataPacket[]>(query);
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('Get appointments error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch appointments',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// backend/controllers/receptionistController.ts
+
+// Get patient by IC number for account creation
+export const getPatientByICForAccount = async (req: Request, res: Response) => {
+  try {
+    const { icNumber } = req.params;
+    
+    if (!icNumber) {
+      return res.status(400).json({ error: 'IC number is required' });
+    }
+
+    const [patientData] = await db.query<RowDataPacket[]>(`
+      SELECT 
+        p.PatientID,
+        p.Name,
+        p.ICNo,
+        p.Gender,
+        p.DOB,
+        p.PhoneNumber,
+        p.Email,
+        p.Address,
+        p.BloodType,
+        p.InsuranceProvider,
+        CASE WHEN pa.PatientAccountID IS NOT NULL THEN 1 ELSE 0 END as HasAccount,
+        pa.PatientAccountID
+      FROM patient p
+      LEFT JOIN patientaccount pa ON p.PatientID = pa.PatientID
+      WHERE p.ICNo = ?
+    `, [icNumber]);
+
+    if (!patientData || patientData.length === 0) {
+      return res.status(404).json({ 
+        error: 'Patient not found',
+        suggestion: 'Please register the patient first in the patient registration system'
+      });
+    }
+
+    const patient = patientData[0];
+    
+    res.json({
+      patient: {
+        id: patient.PatientID,
+        name: patient.Name,
+        icNumber: patient.ICNo,
+        gender: patient.Gender,
+        dob: patient.DOB,
+        phone: patient.PhoneNumber,
+        email: patient.Email,
+        address: patient.Address,
+        bloodType: patient.BloodType,
+        insurance: patient.InsuranceProvider,
+        hasAccount: patient.HasAccount === 1
+      },
+      existingAccountId: patient.PatientAccountID
+    });
+
+  } catch (error) {
+    console.error('Get patient by IC error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch patient information',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Create patient account
+export const createPatientAccount = async (req: Request, res: Response) => {
+  try {
+    const { 
+      icNumber,
+      email,
+      phone,
+      password,
+      receptionistId 
+    } = req.body;
+
+    // Validation
+    if (!icNumber || !email || !phone || !password) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check if patient exists
+    const [patientData] = await db.query<RowDataPacket[]>(
+      'SELECT PatientID, Name, Email, PhoneNumber FROM patient WHERE ICNo = ?',
+      [icNumber]
+    );
+
+    if (!patientData || patientData.length === 0) {
+      return res.status(404).json({ 
+        error: 'Patient not found',
+        suggestion: 'Please register the patient first in the patient registration system'
+      });
+    }
+
+    const patient = patientData[0];
+
+    // Check if account already exists
+    const [existingAccount] = await db.query<RowDataPacket[]>(
+      'SELECT PatientAccountID FROM patientaccount WHERE ICNumber = ? OR Email = ?',
+      [icNumber, email]
+    );
+
+    if (existingAccount && existingAccount.length > 0) {
+      return res.status(400).json({ 
+        error: 'Account already exists',
+        code: 'ACCOUNT_EXISTS',
+        suggestion: 'This IC number or email is already registered for a patient account'
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create patient account
+    const [accountResult] = await db.query<ResultSetHeader>(`
+      INSERT INTO patientaccount (
+        PatientID,
+        Name,
+        Email,
+        Phone,
+        PasswordHash,
+        ICNumber,
+        CreatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      patient.PatientID,
+      patient.Name,
+      email,
+      phone,
+      hashedPassword,
+      icNumber,
+      new Date()
+    ]);
+
+    const accountId = accountResult.insertId;
+
+    // Create welcome notification
+    await db.query<ResultSetHeader>(`
+      INSERT INTO notification (
+        Title,
+        Message,
+        Type,
+        Status,
+        CreatedAt,
+        PatientAccountID
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      'Welcome to Smart CMS!',
+      'Your patient account has been created successfully. You can now access your medical records, appointments, and more.',
+      'account_created',
+      'unread',
+      new Date(),
+      accountId
+    ]);
+
+    res.json({
+      success: true,
+      accountId: accountId,
+      patientName: patient.Name,
+      message: 'Patient account created successfully'
+    });
+
+  } catch (error) {
+    console.error('Create patient account error:', error);
+    
+    // Handle duplicate entry error
+    if ((error as any).errno === 1062) {
+      return res.status(400).json({ 
+        error: 'Account already exists',
+        details: 'This IC number or email is already registered'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to create patient account',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Add to your receptionistController.ts
+
+// Check if account already exists
+export const checkPatientAccountExists = async (req: Request, res: Response) => {
+  try {
+    const { icNumber } = req.params;
+    
+    const [accountData] = await db.query<RowDataPacket[]>(`
+      SELECT pa.PatientAccountID, p.Name 
+      FROM patientaccount pa
+      JOIN patient p ON pa.PatientID = p.PatientID
+      WHERE pa.ICNumber = ? OR p.ICNo = ?
+    `, [icNumber, icNumber]);
+
+    res.json({
+      hasAccount: accountData && accountData.length > 0,
+      accountId: accountData[0]?.PatientAccountID || null,
+      patientName: accountData[0]?.Name || null
+    });
+  } catch (error) {
+    console.error('Check account error:', error);
+    res.status(500).json({ error: 'Failed to check account' });
+  }
+};
+
+// Find patient by IC number
+export const findPatientByIC = async (req: Request, res: Response) => {
+  try {
+    const { icNumber } = req.params;
+    
+    const [patientData] = await db.query<RowDataPacket[]>(`
+      SELECT 
+        PatientID as id,
+        Name as name,
+        ICNo as icNumber,
+        Gender as gender,
+        DOB as dob,
+        PhoneNumber as phone,
+        Email as email,
+        Address as address,
+        BloodType as bloodType,
+        InsuranceProvider as insurance
+      FROM patient 
+      WHERE ICNo = ?
+    `, [icNumber]);
+
+    if (!patientData || patientData.length === 0) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+
+    const patient = patientData[0];
+    
+    res.json({
+      patient: {
+        id: patient.id,
+        name: patient.name,
+        icNumber: patient.icNumber,
+        gender: patient.gender,
+        dob: patient.dob,
+        phone: patient.phone,
+        email: patient.email,
+        address: patient.address,
+        bloodType: patient.bloodType,
+        insurance: patient.insurance,
+        hasAccount: false // We'll check this separately
+      }
+    });
+  } catch (error) {
+    console.error('Find patient error:', error);
+    res.status(500).json({ error: 'Failed to find patient' });
+  }
+};
+
+// Backend API routes for appointment cancellation/rescheduling
+
+
+  export const cancelAppointment = async (req: Request, res: Response) => {
+  try {
+    const { appointmentId, cancellationReason, cancelledByReceptionistId } = req.body;
+    
+    // Update appointment status to cancelled
+    await db.query(
+      'UPDATE Appointments SET Status = "cancelled", CancellationReason = ?, CancelledBy = ?, CancelledAt = NOW() WHERE AppointmentID = ?',
+      [cancellationReason, cancelledByReceptionistId, appointmentId]
+    );
+    
+    // Get appointment details for notification
+    const [appointment] = await db.query(
+      `SELECT a.*, p.Name as PatientName, p.Email as PatientEmail, p.PhoneNumber as PatientPhone,
+              d.Name as DoctorName
+       FROM Appointments a
+       JOIN Patients p ON a.PatientID = p.PatientID
+       JOIN Doctors d ON a.DoctorID = d.DoctorID
+       WHERE a.AppointmentID = ?`,
+      [appointmentId]
+    );
+    
+    // Create notification for patient (if they have an account)
+    if (appointment[0]?.PatientAccountID) {
+      await db.query(
+        `INSERT INTO Notifications (AccountID, Title, Message, Type, CreatedAt) 
+         VALUES (?, 'Appointment Cancelled', 
+         'Your appointment with Dr. ${appointment[0].DoctorName} on ${new Date(appointment[0].AppointmentDateTime).toLocaleDateString()} has been cancelled. Reason: ${cancellationReason}', 
+         'appointment', NOW())`,
+        [appointment[0].PatientAccountID]
+      );
+    }
+    
+    res.json({ 
+      success: true, 
+      cancellationRef: `CANCEL-${Date.now()}`,
+      appointment: appointment[0]
+    });
+  } catch (error) {
+    console.error('Cancel appointment error:', error);
+    res.status(500).json({ error: 'Failed to cancel appointment' });
+  }
+};
+
+  export const rescheduleAppointment = async (req: Request, res: Response) => {
+  try {
+    const { appointmentId, newDateTime, rescheduledByReceptionistId } = req.body;
+    
+    // Get original appointment details
+    const [originalAppointment] = await db.query(
+      `SELECT * FROM Appointments WHERE AppointmentID = ?`,
+      [appointmentId]
+    );
+    
+    // Update appointment with new date/time
+    await db.query(
+      `UPDATE Appointments 
+       SET AppointmentDateTime = ?, 
+           PreviousAppointmentDateTime = ?,
+           RescheduledBy = ?,
+           RescheduledAt = NOW(),
+           Status = 'rescheduled'
+       WHERE AppointmentID = ?`,
+      [newDateTime, originalAppointment[0].AppointmentDateTime, rescheduledByReceptionistId, appointmentId]
+    );
+    
+    // Get updated appointment details for notification
+    const [appointment] = await db.query(
+      `SELECT a.*, p.Name as PatientName, p.Email as PatientEmail, p.PhoneNumber as PatientPhone,
+              d.Name as DoctorName
+       FROM Appointments a
+       JOIN Patients p ON a.PatientID = p.PatientID
+       JOIN Doctors d ON a.DoctorID = d.DoctorID
+       WHERE a.AppointmentID = ?`,
+      [appointmentId]
+    );
+    
+    // Create notification for patient (if they have an account)
+    if (appointment[0]?.PatientAccountID) {
+      await db.query(
+        `INSERT INTO Notifications (AccountID, Title, Message, Type, CreatedAt) 
+         VALUES (?, 'Appointment Rescheduled', 
+         'Your appointment with Dr. ${appointment[0].DoctorName} has been rescheduled to ${new Date(newDateTime).toLocaleString()}.', 
+         'appointment', NOW())`,
+        [appointment[0].PatientAccountID]
+      );
+    }
+    
+    res.json({ 
+      success: true, 
+      appointment: appointment[0]
+    });
+  } catch (error) {
+    console.error('Reschedule appointment error:', error);
+    res.status(500).json({ error: 'Failed to reschedule appointment' });
   }
 };

@@ -19,7 +19,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'; 
 import { Loader2, AlertCircle } from 'lucide-react'; 
 
-type Status = 'pending' | 'approved' | 'rejected';
+type Status = 'pending' | 'approved' | 'rejected' | 'ordered' | 'received' | 'cancelled';
 
 type DrugRequest = {
   id: number;
@@ -42,56 +42,44 @@ export function DrugRequestsSection() {
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
 
+  
   useEffect(() => {
     fetchDrugRequests();
-  }, [activeTab]);
+  }, []); 
 
   const fetchDrugRequests = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`http://localhost:3001/api/admin/drug-requests?status=${activeTab}`);
+      // 2. Fetch 'all' instead of filtered status
+      const response = await fetch(`http://localhost:3001/api/admin/drug-requests?status=all`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch drug requests');
       }
       
       const data = await response.json();
-      setRequests(data);
+
+      // 3. Map the data safely
+      const formattedData = data.map((item: any) => ({
+        id: item.RequestID || item.id,
+        drugName: item.DrugName || item.drugName || 'Unknown Drug',
+        quantity: item.RequestedQuantity || item.quantity || 0,
+        pharmacist: item.RequestedBy || item.pharmacist || 'Unknown', // This relies on the JOIN working
+        reason: item.Notes || item.reason || 'No notes',
+        // Force lowercase to match your tabs
+        status: (item.Status || item.status || 'pending').toLowerCase(),
+        urgency: item.Urgency || 'normal',
+        supplier: item.Supplier,
+        date: item.RequestedAt
+      }));
+
+      setRequests(formattedData);
+      
     } catch (error: any) {
       console.error('Error fetching drug requests:', error);
       setError(error.message);
-      // Fallback to sample data if API fails
-      setRequests([
-        {
-          id: 1,
-          drugName: 'Paracetamol 500mg',
-          quantity: 500,
-          pharmacist: 'Robert Wilson',
-          reason: 'Low stock, high demand',
-          status: 'pending',
-          urgency: 'high'
-        },
-        {
-          id: 2,
-          drugName: 'Amoxicillin 250mg',
-          quantity: 300,
-          pharmacist: 'Sarah Lee',
-          reason: 'Clinic campaign',
-          status: 'ordered',
-          urgency: 'medium'
-        },
-        {
-          id: 3,
-          drugName: 'Ibuprofen 400mg',
-          quantity: 200,
-          pharmacist: 'John Tan',
-          reason: 'Emergency stock',
-          status: 'cancelled',
-          urgency: 'critical'
-        }
-      ]);
     } finally {
       setLoading(false);
     }
@@ -213,7 +201,10 @@ export function DrugRequestsSection() {
               </TableHeader>
 
               <TableBody>
-                {requests.length === 0 && (
+                {/* 🆕 FILTER: Only show items matching the current tab */}
+                {requests
+                  .filter(req => req.status === activeTab)
+                  .length === 0 && (
                   <TableRow>
                     <TableCell colSpan={activeTab === 'pending' ? 6 : 5} className="text-center text-gray-500 py-8">
                       No {getStatusText(activeTab).toLowerCase()} requests
@@ -221,7 +212,9 @@ export function DrugRequestsSection() {
                   </TableRow>
                 )}
 
-                {requests.map(req => (
+                {requests
+                  .filter(req => req.status === activeTab)
+                  .map(req => (
                   <TableRow key={req.id}>
                     <TableCell className="font-medium">{req.drugName}</TableCell>
                     <TableCell>{req.quantity.toLocaleString()}</TableCell>
@@ -249,6 +242,18 @@ export function DrugRequestsSection() {
                           onClick={() => updateStatus(req.id, 'cancelled')}
                         >
                           Reject
+                        </Button>
+                      </TableCell>
+                    )}
+
+                    {activeTab === 'ordered' && (
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                          onClick={() => updateStatus(req.id, 'received')}
+                        >
+                          Receive Stock
                         </Button>
                       </TableCell>
                     )}

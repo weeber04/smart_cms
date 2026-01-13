@@ -1,4 +1,4 @@
-// components/doctor/PrescriptionSubTab.tsx - UPDATED
+// components/doctor/PrescriptionSubTab.tsx - UPDATED WITH SCROLLABLE DIALOG
 import { useState, useEffect } from 'react';
 import { 
   Pill, Plus, Search, Trash2, Printer, 
@@ -74,18 +74,18 @@ export function PrescriptionSubTab({
   }, [selectedPatient]);
 
   // Add this useEffect to check localStorage
-useEffect(() => {
-  console.log('Checking localStorage for userId:');
-  console.log('userId:', localStorage.getItem('userId'));
-  console.log('userID:', localStorage.getItem('userID'));
-  console.log('doctorId:', localStorage.getItem('doctorId'));
-  
-  // Check all localStorage items
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    console.log(`${key}: ${localStorage.getItem(key!)}`);
-  }
-}, []);
+  useEffect(() => {
+    console.log('Checking localStorage for userId:');
+    console.log('userId:', localStorage.getItem('userId'));
+    console.log('userID:', localStorage.getItem('userID'));
+    console.log('doctorId:', localStorage.getItem('doctorId'));
+    
+    // Check all localStorage items
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      console.log(`${key}: ${localStorage.getItem(key!)}`);
+    }
+  }, []);
 
   const fetchDrugs = async (searchQuery = '') => {
     try {
@@ -210,98 +210,98 @@ useEffect(() => {
     setShowAllDrugs(false);
   };
 
-const handleSavePrescription = async () => {
-  if (!selectedPatient || !consultationData) {
-    toast.error('Please select a patient with an active consultation');
-    return;
-  }
-  
-  if (prescriptionItems.length === 0) {
-    toast.error('Please add at least one medication to the prescription');
-    return;
-  }
-  
-  try {
-    const token = localStorage.getItem('token');
-    
-    console.log('Token:', token ? 'Present' : 'Missing');
-    console.log('PatientId:', selectedPatient.PatientID);
-    console.log('ConsultationId:', consultationData.ConsultationID);
-    console.log('Items:', prescriptionItems);
-    
-    // Transform data to match backend schema
-    const transformedItems = prescriptionItems.map(item => ({
-      DrugID: item.DrugID,
-      DrugName: item.DrugName,
-      Dosage: item.Dosage,
-      Frequency: item.Frequency,
-      Duration: item.Duration,
-      Instructions: item.Instructions,
-      Quantity: item.Quantity,
-      UnitPrice: item.UnitPrice
-    }));
-    
-    // DO NOT send doctorId - backend gets it from token
-    const prescriptionData = {
-      patientId: selectedPatient.PatientID,
-      consultationId: consultationData.ConsultationID,
-      items: transformedItems,
-      remarks: consultationData.TreatmentPlan || ''
-    };
-    
-    console.log('Sending prescription data (no doctorId):', JSON.stringify(prescriptionData, null, 2));
-    
-    // Show loading toast
-    const toastId = toast.loading('Saving prescription...');
-    
-    const response = await fetch('http://localhost:3001/api/doctor/prescription/save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(prescriptionData)
-    });
-    
-    const result = await response.json();
-    
-    // Dismiss loading toast
-    toast.dismiss(toastId);
-    
-    console.log('Response status:', response.status);
-    console.log('Response:', result);
-    
-    if (response.ok) {
-      setPrescriptionSaved(true);
-      setTimeout(() => setPrescriptionSaved(false), 3000);
-      
-      // Show success message
-      toast.success(
-        <div>
-          <div className="font-medium">Prescription Saved Successfully!</div>
-          <div className="text-sm opacity-90">Prescription ID: {result.prescriptionId}</div>
-          <div className="text-xs opacity-70">{result.itemsCount} medication(s) added</div>
-        </div>
-      );
-      
-      // Ask about printing
-      setTimeout(() => {
-        if (window.confirm('Would you like to print the prescription?')) {
-          handlePrintPrescription();
-        }
-      }, 500);
-      
-      // Clear prescription items using the prop function
-      onPrescriptionItemsChange([]);
-    } else {
-      console.error('Prescription save error:', result);
-      toast.error(result.error || 'Failed to save prescription');
+  const handleSavePrescription = async () => {
+    if (!selectedPatient || !consultationData) {
+      toast.error('Please select a patient with an active consultation');
+      return;
     }
-  } catch (error) {
-    console.error('Error saving prescription:', error);
-    toast.error('Failed to save prescription. Please try again.');
-  }
-};
+    
+    if (prescriptionItems.length === 0) {
+      toast.error('Please add at least one medication to the prescription');
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('token');
+      
+      console.log('Token:', token ? 'Present' : 'Missing');
+      console.log('PatientId:', selectedPatient.PatientID);
+      console.log('ConsultationId:', consultationData.ConsultationID);
+      console.log('Items:', prescriptionItems);
+      
+      // Transform data to match backend schema
+      const transformedItems = prescriptionItems.map(item => ({
+        DrugID: item.DrugID,
+        DrugName: item.DrugName,
+        Dosage: item.Dosage,
+        Frequency: item.Frequency,
+        Duration: item.Duration,
+        Instructions: item.Instructions,
+        Quantity: item.Quantity,
+        UnitPrice: item.UnitPrice
+      }));
+      
+      // DO NOT send doctorId - backend gets it from token
+      const prescriptionData = {
+        patientId: selectedPatient.PatientID,
+        consultationId: consultationData.ConsultationID,
+        items: transformedItems,
+        remarks: consultationData.TreatmentPlan || ''
+      };
+      
+      console.log('Sending prescription data (no doctorId):', JSON.stringify(prescriptionData, null, 2));
+      
+      // Show loading toast
+      const toastId = toast.loading('Saving prescription...');
+      
+      const response = await fetch('http://localhost:3001/api/doctor/prescription/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(prescriptionData)
+      });
+      
+      const result = await response.json();
+      
+      // Dismiss loading toast
+      toast.dismiss(toastId);
+      
+      console.log('Response status:', response.status);
+      console.log('Response:', result);
+      
+      if (response.ok) {
+        setPrescriptionSaved(true);
+        setTimeout(() => setPrescriptionSaved(false), 3000);
+        
+        // Show success message
+        toast.success(
+          <div>
+            <div className="font-medium">Prescription Saved Successfully!</div>
+            <div className="text-sm opacity-90">Prescription ID: {result.prescriptionId}</div>
+            <div className="text-xs opacity-70">{result.itemsCount} medication(s) added</div>
+          </div>
+        );
+        
+        // Ask about printing
+        setTimeout(() => {
+          if (window.confirm('Would you like to print the prescription?')) {
+            handlePrintPrescription();
+          }
+        }, 500);
+        
+        // Clear prescription items using the prop function
+        onPrescriptionItemsChange([]);
+      } else {
+        console.error('Prescription save error:', result);
+        toast.error(result.error || 'Failed to save prescription');
+      }
+    } catch (error) {
+      console.error('Error saving prescription:', error);
+      toast.error('Failed to save prescription. Please try again.');
+    }
+  };
 
   const handlePrintPrescription = () => {
     const printWindow = window.open('', '_blank');
@@ -485,42 +485,42 @@ const handleSavePrescription = async () => {
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-3 pt-4 border-t">
-{/* In your Action Buttons section */}
-<Button 
-  onClick={handleSavePrescription}
-  disabled={prescriptionItems.length === 0 || prescriptionSaved}
-  className="bg-blue-600 hover:bg-blue-700"
->
-  <CheckCircle className="size-4 mr-2" />
-  {prescriptionSaved ? 'Saving...' : 'Save Prescription'}
-</Button>
+        <Button 
+          onClick={handleSavePrescription}
+          disabled={prescriptionItems.length === 0 || prescriptionSaved}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          <CheckCircle className="size-4 mr-2" />
+          {prescriptionSaved ? 'Saving...' : 'Save Prescription'}
+        </Button>
 
-<Button 
-  variant="outline"
-  onClick={handlePrintPrescription}
-  disabled={prescriptionItems.length === 0}
->
-  <Printer className="size-4 mr-2" />
-  Print Only
-</Button>
+        <Button 
+          variant="outline"
+          onClick={handlePrintPrescription}
+          disabled={prescriptionItems.length === 0}
+        >
+          <Printer className="size-4 mr-2" />
+          Print Only
+        </Button>
       </div>
       
-{prescriptionSaved && (
-  <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm flex items-center gap-2">
-    <CheckCircle className="size-4" />
-    Prescription saved successfully!
-  </div>
-)}
+      {prescriptionSaved && (
+        <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm flex items-center gap-2">
+          <CheckCircle className="size-4" />
+          Prescription saved successfully!
+        </div>
+      )}
 
-      {/* Add Drug Dialog - UPDATED WITH SCROLLABLE AND LIMITED VIEW */}
+      {/* Add Drug Dialog - UPDATED WITH SCROLLABLE CONTENT */}
       <Dialog open={showAddDrug} onOpenChange={setShowAddDrug}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b">
             <DialogTitle>Add Medication</DialogTitle>
             <DialogDescription>Search and add medication to prescription</DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 overflow-hidden">
+          {/* Scrollable main content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
             {/* Drug Search */}
             <div className="space-y-2">
               <Label>Search Medications</Label>
@@ -568,7 +568,7 @@ const handleSavePrescription = async () => {
               </div>
             )}
 
-            {/* Drug Selection List - NOW SCROLLABLE */}
+            {/* Drug Selection List - SCROLLABLE */}
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Label>Available Medications</Label>
@@ -587,7 +587,7 @@ const handleSavePrescription = async () => {
                 ) : displayDrugs.length > 0 ? (
                   <>
                     <div 
-                      className="max-h-[200px] overflow-y-auto" 
+                      className="max-h-[200px] overflow-y-auto"
                       style={{ 
                         scrollbarWidth: 'thin',
                         scrollbarColor: '#cbd5e1 #f1f5f9'
@@ -748,32 +748,34 @@ const handleSavePrescription = async () => {
               />
             </div>
 
-            <DialogFooter className="gap-2 pt-4 border-t">
-              <Button 
-                onClick={handleAddDrug}
-                disabled={!selectedDrug || !newDrug.Dosage.trim()}
-                className="min-w-[150px]"
-              >
-                <Plus className="size-4 mr-2" />
-                Add to Prescription
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setShowAddDrug(false);
-                  resetNewDrugForm();
-                }}
-              >
-                Cancel
-              </Button>
-            </DialogFooter>
+            <div className="pt-4 border-t">
+              <div className="flex gap-3">
+                <Button 
+                  onClick={handleAddDrug}
+                  disabled={!selectedDrug || !newDrug.Dosage.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                >
+                  <Plus className="size-4 mr-2" />
+                  Add to Prescription
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowAddDrug(false);
+                    resetNewDrugForm();
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Confirm Print Dialog */}
+      {/* Confirm Print Dialog - Also make scrollable if needed */}
       <Dialog open={showConfirmPrint} onOpenChange={setShowConfirmPrint}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Print Prescription</DialogTitle>
             <DialogDescription>
@@ -781,15 +783,33 @@ const handleSavePrescription = async () => {
             </DialogDescription>
           </DialogHeader>
           
-          <DialogFooter>
-            <Button onClick={handlePrintPrescription} className="bg-blue-600 hover:bg-blue-700">
-              <Printer className="size-4 mr-2" />
-              Print
-            </Button>
-            <Button variant="outline" onClick={() => setShowConfirmPrint(false)}>
-              Cancel
-            </Button>
-          </DialogFooter>
+          <div className="overflow-y-auto max-h-[60vh]">
+            <div className="space-y-4">
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm font-medium">Prescription Summary:</p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {prescriptionItems.map((item, index) => (
+                    <li key={index} className="flex justify-between">
+                      <span>{item.DrugName}</span>
+                      <span className="text-gray-600">x{item.Quantity}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+          
+          <div className="pt-4 border-t">
+            <div className="flex gap-3">
+              <Button onClick={handlePrintPrescription} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                <Printer className="size-4 mr-2" />
+                Print
+              </Button>
+              <Button variant="outline" onClick={() => setShowConfirmPrint(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

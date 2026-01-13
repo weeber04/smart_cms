@@ -340,157 +340,7 @@ export const scheduleAppointment = async (req: Request, res: Response) => {
   }
 };
 
-// ============ UPDATE APPOINTMENT (FOR RESCHEDULING) ============
 
-// 5. Update appointment with availability check
-export const updateAppointment = async (req: Request, res: Response) => {
-  const { 
-    appointmentId,
-    patientId, 
-    doctorId, 
-    appointmentDateTime, 
-    startTime, 
-    endTime, 
-    duration, 
-    purpose, 
-    notes,
-    updatedBy 
-  } = req.body;
-  
-  try {
-    if (!appointmentId) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Appointment ID is required" 
-      });
-    }
-    
-    // Get current appointment details
-    const [currentAppointments]: any = await db.query(`
-      SELECT * FROM appointment WHERE AppointmentID = ?
-    `, [appointmentId]);
-    
-    if (currentAppointments.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        error: "Appointment not found" 
-      });
-    }
-    
-    const currentAppointment = currentAppointments[0];
-    
-    // Use provided values or current values
-    const updateDoctorId = doctorId || currentAppointment.DoctorID;
-    const updateAppointmentDateTime = appointmentDateTime || currentAppointment.AppointmentDateTime;
-    const updateStartTime = startTime || currentAppointment.start_time;
-    const updateEndTime = endTime || currentAppointment.end_time;
-    const updateDuration = duration || currentAppointment.duration;
-    const updatePurpose = purpose || currentAppointment.Purpose;
-    const updateNotes = notes !== undefined ? notes : currentAppointment.Notes;
-    
-    // Parse the date from appointmentDateTime
-    const appointmentDate = new Date(updateAppointmentDateTime).toISOString().split('T')[0];
-    
-    await db.query("START TRANSACTION");
-    
-    // Check for conflicts (excluding the current appointment)
-    const [conflicts]: any = await db.query(`
-      SELECT 
-        AppointmentID,
-        p.Name as patientName,
-        start_time,
-        end_time,
-        Status,
-        a.Purpose
-      FROM appointment a
-      JOIN patient p ON a.PatientID = p.PatientID
-      WHERE DoctorID = ? 
-        AND DATE(AppointmentDateTime) = ?
-        AND AppointmentID != ?
-        AND Status NOT IN ('cancelled', 'no-show')
-        AND (
-          (start_time < ? AND end_time > ?) OR
-          (start_time >= ? AND start_time < ?) OR
-          (? >= start_time AND ? < end_time)
-        )
-      LIMIT 1
-    `, [
-      updateDoctorId,
-      appointmentDate,
-      appointmentId,
-      updateEndTime, updateStartTime,
-      updateStartTime, updateEndTime,
-      updateStartTime, updateEndTime
-    ]);
-    
-    if (conflicts.length > 0) {
-      const conflict = conflicts[0];
-      await db.query("ROLLBACK");
-      
-      return res.status(400).json({ 
-        success: false,
-        error: "Scheduling conflict detected",
-        conflictDetails: {
-          appointmentId: conflict.AppointmentID,
-          patientName: conflict.patientName,
-          bookedTime: `${conflict.start_time} - ${conflict.end_time}`,
-          status: conflict.Status
-        }
-      });
-    }
-    
-    // Update the appointment
-    await db.query(`
-      UPDATE appointment 
-      SET 
-        DoctorID = ?,
-        AppointmentDateTime = ?,
-        start_time = ?,
-        end_time = ?,
-        duration = ?,
-        Purpose = ?,
-        Notes = ?,
-        UpdatedAt = NOW(),
-        Status = CASE 
-          WHEN Status = 'cancelled' THEN 'scheduled'
-          ELSE Status 
-        END
-      WHERE AppointmentID = ?
-    `, [
-      updateDoctorId,
-      updateAppointmentDateTime,
-      updateStartTime,
-      updateEndTime,
-      updateDuration,
-      updatePurpose,
-      updateNotes,
-      appointmentId
-    ]);
-    
-    await db.query("COMMIT");
-    
-    res.json({ 
-      success: true,
-      message: "Appointment updated successfully",
-      appointmentId,
-      updatedFields: {
-        doctorId: updateDoctorId,
-        date: appointmentDate,
-        startTime: updateStartTime,
-        endTime: updateEndTime,
-        duration: updateDuration
-      }
-    });
-    
-  } catch (error: any) {
-    await db.query("ROLLBACK");
-    console.error("Update appointment error:", error);
-    res.status(500).json({ 
-      success: false,
-      error: "Failed to update appointment"
-    });
-  }
-};
 
 // ============ GET DOCTOR'S DAILY SCHEDULE ============
 
@@ -625,11 +475,6 @@ export const checkBulkAvailability = async (req: Request, res: Response) => {
     });
   }
 };
-
-// The existing functions (checkInAppointment, markAppointmentLate, cancelAppointment, rescheduleAppointment) 
-// remain the same as in your original code...
-
-// In your appointmentController.ts - Update the getTodayAppointments function:
 
 // 1. Get today's appointments with visit status - UPDATED
 export const getTodayAppointments = async (req: Request, res: Response) => {
@@ -929,55 +774,6 @@ export const markAppointmentLate = async (req: Request, res: Response) => {
   }
 };
 
-// 4. Cancel appointment
-export const cancelAppointment = async (req: Request, res: Response) => {
-  const { appointmentId, reason, cancelledBy } = req.body;
-  
-  try {
-    if (!appointmentId || !reason) {
-      return res.status(400).json({ 
-        success: false,
-        error: "Missing required fields"
-      });
-    }
-    
-    await db.query("START TRANSACTION");
-    
-    // Update appointment status
-    await db.query(`
-      UPDATE appointment 
-      SET Status = 'cancelled', 
-          UpdatedAt = NOW(),
-          Notes = CONCAT(COALESCE(Notes, ''), '\nCancelled by ${cancelledBy}: ${reason}')
-      WHERE AppointmentID = ?
-    `, [appointmentId]);
-    
-    // Also cancel any associated active visit
-    await db.query(`
-      UPDATE patient_visit 
-      SET VisitStatus = 'cancelled',
-          QueueStatus = 'cancelled',
-          VisitNotes = CONCAT(COALESCE(VisitNotes, ''), '\nCancelled with appointment')
-      WHERE AppointmentID = ? 
-        AND VisitStatus NOT IN ('completed', 'cancelled')
-    `, [appointmentId]);
-    
-    await db.query("COMMIT");
-    
-    res.json({ 
-      success: true,
-      message: "Appointment cancelled successfully"
-    });
-    
-  } catch (error: any) {
-    await db.query("ROLLBACK");
-    console.error("Cancel appointment error:", error);
-    res.status(500).json({ 
-      success: false,
-      error: "Failed to cancel appointment"
-    });
-  }
-};
 
 // 5. Reschedule appointment
 export const rescheduleAppointment = async (req: Request, res: Response) => {
@@ -1016,6 +812,375 @@ export const rescheduleAppointment = async (req: Request, res: Response) => {
     res.status(500).json({ 
       success: false,
       error: "Failed to reschedule appointment"
+    });
+  }
+};
+
+export const searchAppointments = async (req: Request, res: Response) => {
+  const { q } = req.query;
+  
+  try {
+    if (!q || q.toString().trim().length < 2) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Search query must be at least 2 characters" 
+      });
+    }
+    
+    const searchTerm = `%${q}%`;
+    
+    console.log('Searching appointments for:', searchTerm);
+    
+    const [appointments]: any = await db.query(`
+      SELECT 
+        a.AppointmentID,
+        a.AppointmentDateTime,
+        a.start_time,
+        a.end_time,
+        a.Purpose,
+        a.Notes,
+        a.Status,
+        p.PatientID,
+        p.Name as PatientName,
+        p.ICNo,
+        p.PhoneNumber,
+        p.Email,
+        u.UserID as DoctorID,
+        u.Name as DoctorName,
+        dp.Specialization as DoctorSpecialization
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON a.DoctorID = u.UserID
+      LEFT JOIN doctorprofile dp ON u.UserID = dp.DoctorID
+      WHERE (
+        p.Name LIKE ? OR
+        p.ICNo LIKE ? OR
+        p.PhoneNumber LIKE ? OR
+        a.AppointmentID LIKE ? OR
+        u.Name LIKE ? OR
+        a.Purpose LIKE ?
+      )
+      AND a.Status NOT IN ('cancelled', 'no-show')
+      ORDER BY a.AppointmentDateTime DESC
+      LIMIT 20
+    `, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+    
+    console.log(`Found ${appointments.length} appointments matching search`);
+    
+    res.json({ 
+      success: true,
+      appointments: appointments.map((apt: any) => ({
+        AppointmentID: apt.AppointmentID,
+        AppointmentDateTime: apt.AppointmentDateTime,
+        start_time: apt.start_time,
+        end_time: apt.end_time,
+        Purpose: apt.Purpose,
+        Notes: apt.Notes,
+        Status: apt.Status,
+        PatientID: apt.PatientID,
+        PatientName: apt.PatientName,
+        ICNo: apt.ICNo,
+        PhoneNumber: apt.PhoneNumber,
+        Email: apt.Email,
+        DoctorID: apt.DoctorID,
+        DoctorName: apt.DoctorName,
+        DoctorSpecialization: apt.DoctorSpecialization
+      }))
+    });
+    
+  } catch (error: any) {
+    console.error("Search appointments error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to search appointments"
+    });
+  }
+};
+
+export const getAllAppointments = async (req: Request, res: Response) => {
+  try {
+    console.log('=== Fetching all appointments ===');
+    
+    const [appointments]: any = await db.query(`
+      SELECT 
+        a.AppointmentID,
+        a.AppointmentDateTime,
+        a.start_time,
+        a.end_time,
+        a.Purpose,
+        a.Notes,
+        a.Status,
+        p.PatientID,
+        p.Name as PatientName,
+        p.ICNo,
+        p.PhoneNumber,
+        p.Email,
+        u.UserID as DoctorID,
+        u.Name as DoctorName,
+        dp.Specialization as DoctorSpecialization,
+        v.VisitID,
+        v.QueueNumber,
+        v.VisitStatus,
+        v.CheckInTime
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON a.DoctorID = u.UserID
+      LEFT JOIN doctorprofile dp ON u.UserID = dp.DoctorID
+      LEFT JOIN patient_visit v ON a.AppointmentID = v.AppointmentID
+      WHERE a.Status NOT IN ('cancelled', 'no-show')
+      ORDER BY a.AppointmentDateTime DESC
+    `);
+    
+    console.log(`Found ${appointments.length} appointments total`);
+    
+    res.json({ 
+      success: true,
+      appointments: appointments.map((apt: any) => ({
+        AppointmentID: apt.AppointmentID,
+        AppointmentDateTime: apt.AppointmentDateTime,
+        start_time: apt.start_time,
+        end_time: apt.end_time,
+        Purpose: apt.Purpose,
+        Notes: apt.Notes,
+        Status: apt.Status,
+        PatientID: apt.PatientID,
+        PatientName: apt.PatientName,
+        ICNo: apt.ICNo,
+        PhoneNumber: apt.PhoneNumber,
+        Email: apt.Email,
+        DoctorID: apt.DoctorID,
+        DoctorName: apt.DoctorName,
+        DoctorSpecialization: apt.DoctorSpecialization,
+        VisitID: apt.VisitID,
+        QueueNumber: apt.QueueNumber,
+        VisitStatus: apt.VisitStatus,
+        CheckInTime: apt.CheckInTime
+      }))
+    });
+    
+  } catch (error: any) {
+    console.error("Get all appointments error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to get appointments"
+    });
+  }
+};
+
+export const updateAppointment = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const {
+    patientId,
+    doctorId,
+    appointmentDateTime,
+    startTime,
+    endTime,
+    purpose,
+    notes,
+    status
+  } = req.body;
+  
+  try {
+    if (!id) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Appointment ID is required" 
+      });
+    }
+    
+    console.log('=== Updating appointment ===');
+    console.log('Appointment ID:', id);
+    console.log('Update data:', req.body);
+    
+    // First, get the original appointment to check if we need to update visits
+    const [existingAppointment]: any = await db.query(`
+      SELECT * FROM appointment WHERE AppointmentID = ?
+    `, [id]);
+    
+    if (!existingAppointment || existingAppointment.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Appointment not found" 
+      });
+    }
+    
+    const originalDateTime = existingAppointment[0].AppointmentDateTime;
+    
+    // Update the appointment
+    const [result]: any = await db.query(`
+      UPDATE appointment 
+      SET 
+        PatientID = ?,
+        DoctorID = ?,
+        AppointmentDateTime = ?,
+        start_time = ?,
+        end_time = ?,
+        Purpose = ?,
+        Notes = ?,
+        Status = ?,
+        UpdatedAt = NOW()
+      WHERE AppointmentID = ?
+    `, [
+      patientId,
+      doctorId,
+      appointmentDateTime,
+      startTime,
+      endTime,
+      purpose,
+      notes,
+      status || 'scheduled',
+      id
+    ]);
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Appointment not found or not updated" 
+      });
+    }
+    
+    // If appointment date/time changed and there's a visit record, we might need to update it
+    if (originalDateTime !== appointmentDateTime) {
+      const [visitCheck]: any = await db.query(`
+        SELECT * FROM patient_visit WHERE AppointmentID = ?
+      `, [id]);
+      
+      if (visitCheck.length > 0) {
+        // Update the visit's arrival time if it exists
+        await db.query(`
+          UPDATE patient_visit 
+          SET ArrivalTime = ?
+          WHERE AppointmentID = ?
+        `, [appointmentDateTime, id]);
+        
+        console.log('Updated visit arrival time due to appointment reschedule');
+      }
+    }
+    
+    // Get the updated appointment
+    const [updatedAppointment]: any = await db.query(`
+      SELECT 
+        a.*,
+        p.Name as PatientName,
+        u.Name as DoctorName
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      LEFT JOIN useraccount u ON a.DoctorID = u.UserID
+      WHERE a.AppointmentID = ?
+    `, [id]);
+    
+    console.log('Appointment updated successfully');
+    
+    res.json({ 
+      success: true,
+      appointment: updatedAppointment[0]
+    });
+    
+  } catch (error: any) {
+    console.error("Update appointment error:", error);
+    
+    // Check if it's a duplicate time slot error
+    if (error.code === 'ER_DUP_ENTRY' || error.message?.includes('Duplicate')) {
+      return res.status(400).json({ 
+        success: false,
+        error: "This time slot is already booked. Please choose another time."
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to update appointment"
+    });
+  }
+};
+
+export const cancelAppointment = async (req: Request, res: Response) => {
+  const {
+    appointmentId,
+    reason,
+    cancelledBy
+  } = req.body;
+  
+  try {
+    if (!appointmentId || !reason) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Appointment ID and reason are required" 
+      });
+    }
+    
+    console.log('=== Cancelling appointment ===');
+    console.log('Appointment ID:', appointmentId);
+    console.log('Reason:', reason);
+    
+    // First, check if appointment exists and get details
+    const [appointment]: any = await db.query(`
+      SELECT 
+        a.*,
+        p.Name as PatientName
+      FROM appointment a
+      JOIN patient p ON a.PatientID = p.PatientID
+      WHERE a.AppointmentID = ?
+    `, [appointmentId]);
+    
+    if (!appointment || appointment.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Appointment not found" 
+      });
+    }
+    
+    // Update appointment status to cancelled
+    const [result]: any = await db.query(`
+      UPDATE appointment 
+      SET 
+        Status = 'cancelled',
+        UpdatedAt = NOW(),
+        Notes = CONCAT(COALESCE(Notes, ''), '\nCancelled by ${cancelledBy}: ${reason}')
+      WHERE AppointmentID = ?
+    `, [appointmentId]);
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Appointment not found or not cancelled" 
+      });
+    }
+    
+    // If there's an associated visit, cancel it too
+    const [visitCheck]: any = await db.query(`
+      SELECT * FROM patient_visit WHERE AppointmentID = ?
+    `, [appointmentId]);
+    
+    if (visitCheck.length > 0) {
+      await db.query(`
+        UPDATE patient_visit 
+        SET 
+          VisitStatus = 'cancelled',
+          UpdatedAt = NOW()
+        WHERE AppointmentID = ?
+      `, [appointmentId]);
+      
+      console.log('Cancelled associated visit');
+    }
+    
+    // Generate cancellation reference
+    const cancellationRef = `CANCEL-${Date.now()}-${appointmentId}`;
+    
+    console.log('Appointment cancelled successfully');
+    
+    res.json({ 
+      success: true,
+      cancellationRef,
+      appointmentId,
+      message: "Appointment cancelled successfully"
+    });
+    
+  } catch (error: any) {
+    console.error("Cancel appointment error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to cancel appointment"
     });
   }
 };

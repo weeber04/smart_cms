@@ -1,6 +1,9 @@
 // CheckInQueue.tsx
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { UserPlus, Phone, Mail, Calendar, Search, Users, X, AlertTriangle, Activity, Siren, Clock } from 'lucide-react';
+import { 
+  UserPlus, Phone, Mail, Calendar, Search, Users, Send, X, 
+  Stethoscope, RefreshCw, AlertTriangle, Activity, Siren, Clock 
+} from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -10,6 +13,7 @@ import { Textarea } from '../ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Badge } from '../ui/badge';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { CalendarX, CalendarCheck } from 'lucide-react';
 
 
 interface CheckInQueueProps {
@@ -17,6 +21,21 @@ interface CheckInQueueProps {
   doctors: any[];
   refreshData: () => void;
   waitingRoomList: any[];
+}
+
+interface AppointmentForReminder {
+  AppointmentID: number;
+  AppointmentDateTime: string;
+  Purpose: string;
+  Status: string;
+  QueueNumber: string | null;
+  PatientID: number;
+  PatientName: string;
+  PatientEmail: string | null;
+  PatientPhone: string | null;
+  PatientAccountID: number | null;
+  DoctorName: string;
+  DoctorSpecialization: string;
 }
 
 interface Patient {
@@ -38,6 +57,35 @@ interface Patient {
   queueStatusCategory?: string;
 }
 
+interface PatientForAccount {
+  id: number;
+  name: string;
+  icNumber: string;
+  gender: string;
+  dob: string;
+  phone: string;
+  email: string;
+  address: string;
+  bloodType: string;
+  insurance: string;
+  hasAccount: boolean;
+}
+
+interface AppointmentForCancellation {
+  AppointmentID: number;
+  AppointmentDateTime: string;
+  Purpose: string;
+  Status: string;
+  QueueNumber: string | null;
+  PatientID: number;
+  PatientName: string;
+  PatientEmail: string | null;
+  PatientPhone: string | null;
+  DoctorName: string;
+  DoctorSpecialization: string;
+  CancellationReason?: string;
+}
+
 export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQueueProps) {
   const [showWalkIn, setShowWalkIn] = useState(false);
   const [showSendReminder, setShowSendReminder] = useState(false);
@@ -57,6 +105,39 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMessage, setDialogMessage] = useState("");
   const [dialogTitle, setDialogTitle] = useState("");
+
+const [upcomingAppointments, setUpcomingAppointments] = useState<AppointmentForReminder[]>([]);
+const [filteredAppointments, setFilteredAppointments] = useState<AppointmentForReminder[]>([]);
+const [searchAppointmentTerm, setSearchAppointmentTerm] = useState('');
+const [selectedAppointment, setSelectedAppointment] = useState<AppointmentForReminder | null>(null);
+const [reminderMethod, setReminderMethod] = useState('sms');
+const [reminderMessage, setReminderMessage] = useState('');
+const [sendingReminder, setSendingReminder] = useState(false);
+const [showCreateAccount, setShowCreateAccount] = useState(false);
+const [patientForAccount, setPatientForAccount] = useState<any>(null);
+const [accountFormData, setAccountFormData] = useState({
+  icNumber: '',
+  email: '',
+  phone: '',
+  password: '',
+  confirmPassword: '',
+});
+const [accountCreationStep, setAccountCreationStep] = useState(1); // 1: Search, 2: Verify, 3: Create
+const [verifyingIC, setVerifyingIC] = useState(false);
+const [creatingAccount, setCreatingAccount] = useState(false);
+const [accountError, setAccountError] = useState<string | null>(null);
+
+const [showCancelAppointment, setShowCancelAppointment] = useState(false);
+const [upcomingAppointmentsForCancel, setUpcomingAppointmentsForCancel] = useState<AppointmentForCancellation[]>([]);
+const [filteredCancellationAppointments, setFilteredCancellationAppointments] = useState<AppointmentForCancellation[]>([]);
+const [searchCancellationTerm, setSearchCancellationTerm] = useState('');
+const [selectedAppointmentForCancel, setSelectedAppointmentForCancel] = useState<AppointmentForCancellation | null>(null);
+const [cancellationReason, setCancellationReason] = useState('');
+const [cancellingAppointment, setCancellingAppointment] = useState(false);
+const [showReschedule, setShowReschedule] = useState(false);
+const [rescheduleDateTime, setRescheduleDateTime] = useState('');
+const [reschedulingAppointment, setReschedulingAppointment] = useState(false);
+
 
   const resetWalkInForm = () => {
     console.log('Resetting form');
@@ -213,6 +294,12 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
       setCurrentPage(currentPage + 1);
     }
   }, [currentPage, searchResults.length]);
+
+useEffect(() => {
+  if (showSendReminder) {
+    fetchUpcomingAppointments(true); // Only patients with accounts
+  }
+}, [showSendReminder]);
 
   // Get priority badge component
   const getPriorityBadge = (priority: string) => {
@@ -471,6 +558,849 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
     );
   };
 
+  useEffect(() => {
+  if (showSendReminder) {
+    fetchUpcomingAppointments();
+  }
+}, [showSendReminder]);
+
+const fetchUpcomingAppointments = async (showOnlyWithAccounts = false) => {
+  try {
+    const url = showOnlyWithAccounts 
+      ? "http://localhost:3001/api/receptionist/upcoming-appointments?hasAccount=true"
+      : "http://localhost:3001/api/receptionist/upcoming-appointments";
+    
+    console.log('Fetching appointments from:', url); // Add this log
+    
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch appointments');
+    
+    const data = await response.json();
+    console.log('Received appointments:', data.length, 'items'); // Add this log
+    setUpcomingAppointments(data);
+    setFilteredAppointments(data);
+  } catch (error) {
+    console.error("Error fetching appointments:", error);
+    alert("Failed to load upcoming appointments");
+  }
+};
+
+// Update the useEffect to fetch only patients with accounts initially:
+useEffect(() => {
+  if (showSendReminder) {
+    fetchUpcomingAppointments(true); // Only show patients with accounts
+  }
+}, [showSendReminder]);
+// Filter appointments when search term changes
+useEffect(() => {
+  if (!searchAppointmentTerm.trim()) {
+    setFilteredAppointments(upcomingAppointments);
+    return;
+  }
+  
+  const filtered = upcomingAppointments.filter(appointment =>
+    appointment.PatientName.toLowerCase().includes(searchAppointmentTerm.toLowerCase()) ||
+    appointment.PatientPhone?.includes(searchAppointmentTerm) ||
+    appointment.QueueNumber?.includes(searchAppointmentTerm) ||
+    appointment.AppointmentID.toString().includes(searchAppointmentTerm)
+  );
+  
+  setFilteredAppointments(filtered);
+}, [searchAppointmentTerm, upcomingAppointments]);
+
+// Format appointment date for display
+const formatAppointmentDateTime = (dateTime: string) => {
+  const date = new Date(dateTime);
+  return {
+    date: date.toLocaleDateString(),
+    time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    full: date.toLocaleString()
+  };
+};
+
+// Handle sending reminder
+const handleSendReminder = async () => {
+  if (!selectedAppointment || !receptionistId || !selectedAppointment.PatientAccountID) {
+    alert("Please select an appointment and ensure patient has an account");
+    return;
+  }
+
+  if (!reminderMethod) {
+    alert("Please select a reminder method");
+    return;
+  }
+
+  setSendingReminder(true);
+  try {
+    const formattedDateTime = formatAppointmentDateTime(selectedAppointment.AppointmentDateTime);
+    
+    const reminderData = {
+      appointmentId: selectedAppointment.AppointmentID,
+      patientAccountId: selectedAppointment.PatientAccountID,
+      patientName: selectedAppointment.PatientName,
+      appointmentDateTime: selectedAppointment.AppointmentDateTime,
+      doctorName: selectedAppointment.DoctorName,
+      method: reminderMethod,
+      message: reminderMessage || `Reminder: Appointment with Dr. ${selectedAppointment.DoctorName} on ${formattedDateTime.date} at ${formattedDateTime.time}`,
+      receptionistId: receptionistId
+    };
+
+    const response = await fetch("http://localhost:3001/api/receptionist/send-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reminderData)
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      alert(`Reminder sent successfully! Notification ID: ${result.notificationId}`);
+      
+      // Reset form
+      setSelectedAppointment(null);
+      setReminderMethod('sms');
+      setReminderMessage('');
+      setShowSendReminder(false);
+      
+      // Refresh appointments list
+      fetchUpcomingAppointments();
+    } else {
+      alert(result.error || 'Failed to send reminder');
+    }
+  } catch (error) {
+    console.error("Error sending reminder:", error);
+    alert("Failed to send reminder");
+  } finally {
+    setSendingReminder(false);
+  }
+};
+
+// Handle auto-fill message when appointment is selected
+useEffect(() => {
+  if (selectedAppointment) {
+    const formattedDateTime = formatAppointmentDateTime(selectedAppointment.AppointmentDateTime);
+    const defaultMessage = `Reminder: You have an appointment with Dr. ${selectedAppointment.DoctorName} ` +
+      `(${selectedAppointment.DoctorSpecialization}) on ${formattedDateTime.date} at ${formattedDateTime.time}. ` +
+      `Please arrive 15 minutes early. Queue number: ${selectedAppointment.QueueNumber || 'Will be assigned on arrival'}`;
+    
+    setReminderMessage(defaultMessage);
+  }
+}, [selectedAppointment]);
+
+// Add this function to handle IC number verification
+// Change this in handleVerifyICNumber function:
+const handleVerifyICNumber = async (e?: React.FormEvent) => {
+  if (e) {
+    e.preventDefault(); // Prevent form submission
+  }
+
+  if (!accountFormData.icNumber.trim()) {
+    
+    setAccountError('Please enter IC number');
+    return;
+  }
+
+  // Validate IC number format
+  const icRegex = /^[0-9]{6}-[0-9]{2}-[0-9]{4}$|^[0-9]{12}$/;
+  if (!icRegex.test(accountFormData.icNumber)) {
+    setAccountError('Please enter a valid IC number format (e.g., 900101-01-1234 or 900101011234)');
+    return;
+  }
+
+  setVerifyingIC(true);
+  setAccountError(null);
+
+  try {
+    // FIRST: Check if there's already an account for this IC
+    const checkAccountResponse = await fetch(
+      `http://localhost:3001/api/receptionist/check-account/${accountFormData.icNumber}`
+    );
+    
+    const accountCheck = await checkAccountResponse.json();
+    
+    if (accountCheck.hasAccount) {
+      setAccountError('This patient already has a mobile account');
+      return;
+    }
+    
+    // SECOND: Find patient by IC number
+    const response = await fetch(
+      `http://localhost:3001/api/receptionist/find-patient-by-ic/${accountFormData.icNumber}`
+    );
+    
+    const result = await response.json();
+
+    if (response.ok && result.patient) {
+      setPatientForAccount(result.patient);
+      setAccountCreationStep(2); // Move to verification step
+      
+      // Pre-fill form with patient data
+      setAccountFormData(prev => ({
+        ...prev,
+        email: result.patient.email || '',
+        phone: result.patient.phone || '',
+      }));
+    } else {
+      setAccountError(result.error || 'Patient not found. Please register patient first.');
+    }
+  } catch (error) {
+    console.error('Verify IC error:', error);
+    setAccountError('Failed to verify patient. Please try again.');
+  } finally {
+    setVerifyingIC(false);
+  }
+};
+// Add this function to handle account creation
+const handleCreatePatientAccount = async () => {
+  // Validation
+  if (!accountFormData.email.trim()) {
+    setAccountError('Email is required');
+    return;
+  }
+
+  if (!accountFormData.phone.trim()) {
+    setAccountError('Phone number is required');
+    return;
+  }
+
+  if (!accountFormData.password.trim()) {
+    setAccountError('Password is required');
+    return;
+  }
+
+  if (accountFormData.password.length < 6) {
+    setAccountError('Password must be at least 6 characters');
+    return;
+  }
+
+  if (accountFormData.password !== accountFormData.confirmPassword) {
+    setAccountError('Passwords do not match');
+    return;
+  }
+
+  if (!receptionistId) {
+    setAccountError('Receptionist ID is missing');
+    return;
+  }
+
+  setCreatingAccount(true);
+  setAccountError(null);
+
+  try {
+    const response = await fetch('http://localhost:3001/api/receptionist/create-patient-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        icNumber: accountFormData.icNumber,
+        email: accountFormData.email,
+        phone: accountFormData.phone,
+        password: accountFormData.password,
+        receptionistId: receptionistId
+      })
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      // Show success message
+      setDialogTitle("Account Created Successfully");
+      setDialogMessage(
+        `Patient account created for ${result.patientName}!\n\n` +
+        `Account ID: ${result.accountId}\n` +
+        `Email: ${accountFormData.email}\n` +
+        `Phone: ${accountFormData.phone}\n\n` +
+        `The patient can now login to the mobile app.`
+      );
+      setDialogOpen(true);
+
+      // Reset form
+      resetAccountForm();
+      setShowCreateAccount(false);
+      
+      // Refresh any relevant data
+      if (showSendReminder) {
+        fetchUpcomingAppointments();
+      }
+    } else {
+      setAccountError(result.error || 'Failed to create account');
+    }
+  } catch (error) {
+    console.error('Create account error:', error);
+    setAccountError('Failed to create account. Please try again.');
+  } finally {
+    setCreatingAccount(false);
+  }
+};
+
+
+// Add this function to reset the account form
+const resetAccountForm = () => {
+  setAccountFormData({
+    icNumber: '',
+    email: '',
+    phone: '',
+    password: '',
+    confirmPassword: '',
+  });
+  setPatientForAccount(null);
+  setAccountCreationStep(1);
+  setAccountError(null);
+};
+
+
+
+useEffect(() => {
+  if (showCancelAppointment) {
+    fetchAppointmentsForCancellation();
+  }
+}, [showCancelAppointment]);
+
+// Add this function to fetch appointments for cancellation
+const fetchAppointmentsForCancellation = async () => {
+  try {
+    const response = await fetch("http://localhost:3001/api/receptionist/upcoming-appointments?status=upcoming");
+    if (!response.ok) throw new Error('Failed to fetch appointments');
+    
+    const data = await response.json();
+    setUpcomingAppointmentsForCancel(data);
+    setFilteredCancellationAppointments(data);
+  } catch (error) {
+    console.error("Error fetching appointments:", error);
+    alert("Failed to load upcoming appointments");
+  }
+};
+
+// Add this function to handle appointment cancellation
+const handleCancelAppointment = async () => {
+  if (!selectedAppointmentForCancel || !cancellationReason.trim()) {
+    alert("Please select an appointment and provide a cancellation reason");
+    return;
+  }
+
+  if (!receptionistId) {
+    alert("Receptionist ID is missing");
+    return;
+  }
+
+  const confirmCancel = window.confirm(
+    `Are you sure you want to cancel this appointment?\n\n` +
+    `Patient: ${selectedAppointmentForCancel.PatientName}\n` +
+    `Appointment: ${formatAppointmentDateTime(selectedAppointmentForCancel.AppointmentDateTime).full}\n` +
+    `Doctor: Dr. ${selectedAppointmentForCancel.DoctorName}`
+  );
+
+  if (!confirmCancel) return;
+
+  setCancellingAppointment(true);
+
+  try {
+    const response = await fetch("http://localhost:3001/api/receptionist/cancel-appointment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appointmentId: selectedAppointmentForCancel.AppointmentID,
+        cancellationReason: cancellationReason,
+        cancelledByReceptionistId: receptionistId
+      })
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      // Show success message
+      setDialogTitle("Appointment Cancelled");
+      setDialogMessage(
+        `Appointment successfully cancelled!\n\n` +
+        `Patient: ${selectedAppointmentForCancel.PatientName}\n` +
+        `Appointment ID: ${selectedAppointmentForCancel.AppointmentID}\n` +
+        `Cancellation Reference: ${result.cancellationRef}\n\n` +
+        `The patient has been notified of the cancellation.`
+      );
+      setDialogOpen(true);
+
+      // Reset form
+      setSelectedAppointmentForCancel(null);
+      setCancellationReason('');
+      setShowCancelAppointment(false);
+      
+      // Refresh appointments list
+      fetchAppointmentsForCancellation();
+      refreshData(); // Refresh waiting room list
+    } else {
+      alert(result.error || 'Failed to cancel appointment');
+    }
+  } catch (error) {
+    console.error("Error cancelling appointment:", error);
+    alert("Failed to cancel appointment. Please try again.");
+  } finally {
+    setCancellingAppointment(false);
+  }
+};
+
+// Add this function to handle appointment rescheduling
+const handleRescheduleAppointment = async () => {
+  if (!selectedAppointmentForCancel || !rescheduleDateTime) {
+    alert("Please select an appointment and choose a new date/time");
+    return;
+  }
+
+  if (!receptionistId) {
+    alert("Receptionist ID is missing");
+    return;
+  }
+
+  const confirmReschedule = window.confirm(
+    `Reschedule this appointment?\n\n` +
+    `From: ${formatAppointmentDateTime(selectedAppointmentForCancel.AppointmentDateTime).full}\n` +
+    `To: ${formatAppointmentDateTime(rescheduleDateTime).full}`
+  );
+
+  if (!confirmReschedule) return;
+
+  setReschedulingAppointment(true);
+
+  try {
+    const response = await fetch("http://localhost:3001/api/receptionist/reschedule-appointment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appointmentId: selectedAppointmentForCancel.AppointmentID,
+        newDateTime: rescheduleDateTime,
+        rescheduledByReceptionistId: receptionistId
+      })
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      // Show success message
+      setDialogTitle("Appointment Rescheduled");
+      setDialogMessage(
+        `Appointment successfully rescheduled!\n\n` +
+        `Patient: ${selectedAppointmentForCancel.PatientName}\n` +
+        `New Appointment: ${formatAppointmentDateTime(rescheduleDateTime).full}\n` +
+        `Doctor: Dr. ${selectedAppointmentForCancel.DoctorName}\n\n` +
+        `The patient has been notified of the change.`
+      );
+      setDialogOpen(true);
+
+      // Reset form
+      setSelectedAppointmentForCancel(null);
+      setRescheduleDateTime('');
+      setShowReschedule(false);
+      setShowCancelAppointment(false);
+      
+      // Refresh appointments list
+      fetchAppointmentsForCancellation();
+      refreshData();
+    } else {
+      alert(result.error || 'Failed to reschedule appointment');
+    }
+  } catch (error) {
+    console.error("Error rescheduling appointment:", error);
+    alert("Failed to reschedule appointment. Please try again.");
+  } finally {
+    setReschedulingAppointment(false);
+  }
+};
+
+// Update the filteredAppointments useEffect to hide other appointments when one is selected
+useEffect(() => {
+  if (!searchCancellationTerm.trim() && !selectedAppointmentForCancel) {
+    setFilteredCancellationAppointments(upcomingAppointmentsForCancel);
+    return;
+  }
+  
+  let filtered = upcomingAppointmentsForCancel;
+  
+  // Apply search filter if there's a search term
+  if (searchCancellationTerm.trim()) {
+    filtered = filtered.filter(appointment =>
+      appointment.PatientName.toLowerCase().includes(searchCancellationTerm.toLowerCase()) ||
+      appointment.PatientPhone?.includes(searchCancellationTerm) ||
+      appointment.QueueNumber?.includes(searchCancellationTerm) ||
+      appointment.AppointmentID.toString().includes(searchCancellationTerm)
+    );
+  }
+  
+  // If an appointment is selected, ONLY show that appointment
+  if (selectedAppointmentForCancel) {
+    filtered = filtered.filter(
+      appointment => appointment.AppointmentID === selectedAppointmentForCancel.AppointmentID
+    );
+  }
+  
+  setFilteredCancellationAppointments(filtered);
+}, [searchCancellationTerm, selectedAppointmentForCancel, upcomingAppointmentsForCancel]);
+
+//-----------------------------------
+
+
+const CreateAccountDialog = () => {
+  // Move the form states inside the dialog component to avoid re-rendering parent
+  const [localAccountFormData, setLocalAccountFormData] = useState({
+    icNumber: '',
+    email: '',
+    phone: '',
+    password: '',
+    confirmPassword: '',
+  });
+  const [localPatientForAccount, setLocalPatientForAccount] = useState<any>(null);
+  const [localAccountCreationStep, setLocalAccountCreationStep] = useState(1);
+  const [localVerifyingIC, setLocalVerifyingIC] = useState(false);
+  const [localCreatingAccount, setLocalCreatingAccount] = useState(false);
+  const [localAccountError, setLocalAccountError] = useState<string | null>(null);
+
+  // Reset function for local state
+  const resetLocalAccountForm = () => {
+    setLocalAccountFormData({
+      icNumber: '',
+      email: '',
+      phone: '',
+      password: '',
+      confirmPassword: '',
+    });
+    setLocalPatientForAccount(null);
+    setLocalAccountCreationStep(1);
+    setLocalAccountError(null);
+  };
+
+  // Handle dialog close
+  const handleDialogClose = () => {
+    resetLocalAccountForm();
+    setShowCreateAccount(false);
+  };
+
+  // Handle IC verification
+  const handleVerifyICNumber = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
+
+    if (!localAccountFormData.icNumber.trim()) {
+      setLocalAccountError('Please enter IC number');
+      return;
+    }
+
+    const icRegex = /^[0-9]{6}-[0-9]{2}-[0-9]{4}$|^[0-9]{12}$/;
+    if (!icRegex.test(localAccountFormData.icNumber)) {
+      setLocalAccountError('Please enter a valid IC number format (e.g., 900101-01-1234 or 900101011234)');
+      return;
+    }
+
+    setLocalVerifyingIC(true);
+    setLocalAccountError(null);
+
+    try {
+      // Check if there's already an account
+      const checkAccountResponse = await fetch(
+        `http://localhost:3001/api/receptionist/check-account/${localAccountFormData.icNumber}`
+      );
+      
+      const accountCheck = await checkAccountResponse.json();
+      
+      if (accountCheck.hasAccount) {
+        setLocalAccountError('This patient already has a mobile account');
+        return;
+      }
+      
+      // Find patient by IC number
+      const response = await fetch(
+        `http://localhost:3001/api/receptionist/find-patient-by-ic/${localAccountFormData.icNumber}`
+      );
+      
+      const result = await response.json();
+
+      if (response.ok && result.patient) {
+        setLocalPatientForAccount(result.patient);
+        setLocalAccountCreationStep(2);
+        
+        // Pre-fill form with patient data
+        setLocalAccountFormData(prev => ({
+          ...prev,
+          email: result.patient.email || '',
+          phone: result.patient.phone || '',
+        }));
+      } else {
+        setLocalAccountError(result.error || 'Patient not found. Please register patient first.');
+      }
+    } catch (error) {
+      console.error('Verify IC error:', error);
+      setLocalAccountError('Failed to verify patient. Please try again.');
+    } finally {
+      setLocalVerifyingIC(false);
+    }
+  };
+
+  // Handle account creation
+  const handleCreatePatientAccount = async () => {
+    // Validation
+    if (!localAccountFormData.email.trim()) {
+      setLocalAccountError('Email is required');
+      return;
+    }
+
+    if (!localAccountFormData.phone.trim()) {
+      setLocalAccountError('Phone number is required');
+      return;
+    }
+
+    if (!localAccountFormData.password.trim()) {
+      setLocalAccountError('Password is required');
+      return;
+    }
+
+    if (localAccountFormData.password.length < 6) {
+      setLocalAccountError('Password must be at least 6 characters');
+      return;
+    }
+
+    if (localAccountFormData.password !== localAccountFormData.confirmPassword) {
+      setLocalAccountError('Passwords do not match');
+      return;
+    }
+
+    if (!receptionistId) {
+      setLocalAccountError('Receptionist ID is missing');
+      return;
+    }
+
+    setLocalCreatingAccount(true);
+    setLocalAccountError(null);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/receptionist/create-patient-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          icNumber: localAccountFormData.icNumber,
+          email: localAccountFormData.email,
+          phone: localAccountFormData.phone,
+          password: localAccountFormData.password,
+          receptionistId: receptionistId
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        // Show success message
+        setDialogTitle("Account Created Successfully");
+        setDialogMessage(
+          `Patient account created for ${result.patientName}!\n\n` +
+          `Account ID: ${result.accountId}\n` +
+          `Email: ${localAccountFormData.email}\n` +
+          `Phone: ${localAccountFormData.phone}\n\n` +
+          `The patient can now login to the mobile app.`
+        );
+        setDialogOpen(true);
+
+        // Reset and close
+        resetLocalAccountForm();
+        setShowCreateAccount(false);
+        
+        // Refresh any relevant data
+        if (showSendReminder) {
+          fetchUpcomingAppointments();
+        }
+      } else {
+        setLocalAccountError(result.error || 'Failed to create account');
+      }
+    } catch (error) {
+      console.error('Create account error:', error);
+      setLocalAccountError('Failed to create account. Please try again.');
+    } finally {
+      setLocalCreatingAccount(false);
+    }
+  };
+
+  return (
+    <Dialog open={showCreateAccount} onOpenChange={handleDialogClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create Patient Mobile Account</DialogTitle>
+          <DialogDescription>
+            Link patient data to mobile app account using IC number
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Step 1: Search by IC Number */}
+          {localAccountCreationStep === 1 && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="ic-number">Patient IC Number *</Label>
+                <Input
+                  id="ic-number"
+                  placeholder="e.g., 900101-01-1234"
+                  value={localAccountFormData.icNumber}
+                  onChange={(e) => setLocalAccountFormData({...localAccountFormData, icNumber: e.target.value})}
+                  disabled={localVerifyingIC}
+                />
+                <p className="text-xs text-gray-500">
+                  Enter the patient's IC number to verify their identity
+                </p>
+              </div>
+
+              {localAccountError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-red-700 text-sm">{localAccountError}</p>
+                </div>
+              )}
+
+              <Button 
+                onClick={(e) => handleVerifyICNumber(e)}
+                disabled={localVerifyingIC || !localAccountFormData.icNumber.trim()}
+                className="w-full"
+              >
+                {localVerifyingIC ? (
+                  <>
+                    <RefreshCw className="size-4 mr-2 animate-spin" />
+                    Verifying...
+                  </>
+                ) : (
+                  <>
+                    <Search className="size-4 mr-2" />
+                    Verify & Continue
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* Step 2: Verify Patient Details */}
+          {localAccountCreationStep === 2 && localPatientForAccount && (
+            <div className="space-y-4">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h3 className="font-medium text-blue-800 mb-2">Patient Found ✓</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Name:</span>
+                    <span className="font-medium">{localPatientForAccount.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">IC Number:</span>
+                    <span className="font-medium">{localPatientForAccount.icNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Gender:</span>
+                    <span>{localPatientForAccount.gender}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Date of Birth:</span>
+                    <span>{new Date(localPatientForAccount.dob).toLocaleDateString()}</span>
+                  </div>
+                  {localPatientForAccount.bloodType && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Blood Type:</span>
+                      <span>{localPatientForAccount.bloodType}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="account-email">Email Address *</Label>
+                  <Input
+                    id="account-email"
+                    type="email"
+                    placeholder="patient@example.com"
+                    value={localAccountFormData.email}
+                    onChange={(e) => setLocalAccountFormData({...localAccountFormData, email: e.target.value})}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="account-phone">Phone Number *</Label>
+                  <Input
+                    id="account-phone"
+                    type="tel"
+                    placeholder="+6012-345-6789"
+                    value={localAccountFormData.phone}
+                    onChange={(e) => setLocalAccountFormData({...localAccountFormData, phone: e.target.value})}
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="account-password">Password *</Label>
+                    <Input
+                      id="account-password"
+                      type="password"
+                      placeholder="At least 6 characters"
+                      value={localAccountFormData.password}
+                      onChange={(e) => setLocalAccountFormData({...localAccountFormData, password: e.target.value})}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password">Confirm Password *</Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      placeholder="Confirm password"
+                      value={localAccountFormData.confirmPassword}
+                      onChange={(e) => setLocalAccountFormData({...localAccountFormData, confirmPassword: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p>✓ Password must be at least 6 characters</p>
+                  <p>✓ Patient will receive a welcome notification</p>
+                  <p>✓ Account is linked to medical records</p>
+                </div>
+
+                {localAccountError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                    <p className="text-red-700 text-sm">{localAccountError}</p>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <Button 
+                    onClick={handleCreatePatientAccount}
+                    disabled={localCreatingAccount}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    {localCreatingAccount ? (
+                      <>
+                        <RefreshCw className="size-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="size-4 mr-2" />
+                        Create Account
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setLocalAccountCreationStep(1);
+                      setLocalPatientForAccount(null);
+                      setLocalAccountError(null);
+                    }}
+                  >
+                    Back
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
   return (
     <div className="space-y-6">
       {/* Quick Actions Card */}
@@ -480,109 +1410,120 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
           <CardDescription>Common reception tasks</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3">
-            <Button 
-              variant="outline" 
-              className="h-20 flex flex-col gap-2" 
-              onClick={() => setShowWalkIn(true)}
-            >
-              <UserPlus className="size-5" />
-              <span className="text-sm">Walk-in Patient</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="h-20 flex flex-col gap-2" 
-              onClick={() => alert('Calling patient...')}
-            >
-              <Phone className="size-5" />
-              <span className="text-sm">Call Patient</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="h-20 flex flex-col gap-2" 
-              onClick={() => setShowSendReminder(true)}
-            >
-              <Mail className="size-5" />
-              <span className="text-sm">Send Reminder</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="h-20 flex flex-col gap-2" 
-              onClick={() => alert('Cancel appointment functionality')}
-            >
-              <Calendar className="size-5" />
-              <span className="text-sm">Cancel Apt</span>
-            </Button>
-          </div>
+<div className="grid grid-cols-2 gap-3">
+  <Button 
+    variant="outline" 
+    className="h-20 flex flex-col gap-2" 
+    onClick={() => setShowWalkIn(true)}
+  >
+    <UserPlus className="size-5" />
+    <span className="text-sm">Walk-in Patient</span>
+  </Button>
+  <Button 
+    variant="outline" 
+    className="h-20 flex flex-col gap-2" 
+    onClick={() => alert('Calling patient...')}
+  >
+    <Phone className="size-5" />
+    <span className="text-sm">Call Patient</span>
+  </Button>
+  <Button 
+    variant="outline" 
+    className="h-20 flex flex-col gap-2" 
+    onClick={() => setShowCreateAccount(true)}
+  >
+    <UserPlus className="size-5" />
+    <span className="text-sm">Mobile Account</span>
+  </Button>
+  <Button 
+    variant="outline" 
+    className="h-20 flex flex-col gap-2" 
+    onClick={() => setShowSendReminder(true)}
+  >
+    <Mail className="size-5" />
+    <span className="text-sm">Send Reminder</span>
+  </Button>
+  <Button 
+    variant="outline" 
+    className="h-20 flex flex-col gap-2" 
+    onClick={() => setShowCancelAppointment(true)}
+  >
+    <CalendarX className="size-5" />
+    <span className="text-sm">Cancel/Reschedule</span>
+  </Button>
+</div>
         </CardContent>
       </Card>
 
       {/* Walk-in Patient Dialog - FIXED LAYOUT */}
       <Dialog 
-        open={showWalkIn} 
-        onOpenChange={(open) => {
-          console.log('Dialog open state:', open);
-          if (!open) {
-            resetWalkInForm();
-          }
-          setShowWalkIn(open);
-        }}
-      >
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle>Register Walk-in Patient</DialogTitle>
-            <DialogDescription>Search for existing patient or register new walk-in</DialogDescription>
-          </DialogHeader>
-          
-          {/* Fixed search section - WON'T SCROLL */}
-          <div className="space-y-2 flex-shrink-0">
-            <Label htmlFor="patient-search">Search Patient</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 size-4" />
-                <Input
-                  id="patient-search"
-                  placeholder="Search by name, IC number, or phone..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    console.log('Search query:', e.target.value);
-                    setSearchQuery(e.target.value);
-                  }}
-                  className="pl-10"
-                  disabled={!!selectedPatient}
-                />
-              </div>
-              <Button 
-                onClick={handleSearchPatient}
-                disabled={isSearching || !!selectedPatient}
-                variant="outline"
-              >
-                {isSearching ? 'Searching...' : 'Search'}
-              </Button>
+  open={showWalkIn} 
+  onOpenChange={(open) => {
+    console.log('Dialog open state:', open);
+    if (!open) {
+      resetWalkInForm();
+    }
+    setShowWalkIn(open);
+  }}
+>
+  <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+    <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b">
+      <DialogTitle>Register Walk-in Patient</DialogTitle>
+      <DialogDescription>Search for existing patient or register new walk-in</DialogDescription>
+    </DialogHeader>
+    
+    {/* Main scrollable content */}
+    <div className="flex-1 overflow-y-auto px-6 pb-6">
+      <div className="space-y-4">
+        {/* Fixed search section */}
+        <div className="space-y-2">
+          <Label htmlFor="patient-search">Search Patient</Label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 size-4" />
+              <Input
+                id="patient-search"
+                placeholder="Search by name, IC number, or phone..."
+                value={searchQuery}
+                onChange={(e) => {
+                  console.log('Search query:', e.target.value);
+                  setSearchQuery(e.target.value);
+                }}
+                className="pl-10"
+                disabled={!!selectedPatient}
+              />
             </div>
-            <p className="text-xs text-gray-500">
-              Search for existing patient to add to queue
-            </p>
+            <Button 
+              onClick={handleSearchPatient}
+              disabled={isSearching || !!selectedPatient}
+              variant="outline"
+            >
+              {isSearching ? 'Searching...' : 'Search'}
+            </Button>
           </div>
+          <p className="text-xs text-gray-500">
+            Search for existing patient to add to queue
+          </p>
+        </div>
 
-          {/* SCROLLABLE CONTENT AREA */}
-          <div className="flex-1 overflow-y-auto mt-4">
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-red-700 text-sm">{error}</p>
-              </div>
-            )}
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+        )}
 
-            {/* Loading Indicator */}
-            {isSearching && (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600 mx-auto"></div>
-                <p className="text-sm text-gray-500 mt-2">Searching...</p>
-              </div>
-            )}
+        {/* Loading Indicator */}
+        {isSearching && (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600 mx-auto"></div>
+            <p className="text-sm text-gray-500 mt-2">Searching...</p>
+          </div>
+        )}
 
-            {/* Search Results */}
-            <PatientSearchResults />
+        {/* Search Results */}
+        <div className="max-h-[400px] overflow-y-auto">
+          <PatientSearchResults />
+        </div>
 
             {/* No Results Message */}
             {searchQuery && searchResults.length === 0 && !isSearching && !selectedPatient && (
@@ -756,67 +1697,292 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
                   </Button>
                 </div>
               </div>
+              
             )}
+          </div>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Send Reminder Dialog */}
       <Dialog open={showSendReminder} onOpenChange={setShowSendReminder}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b">
             <DialogTitle>Send Appointment Reminder</DialogTitle>
-            <DialogDescription>Send reminder to patients</DialogDescription>
+            <DialogDescription>
+              Send reminders for upcoming appointments (next 48 hours)
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          
+          {/* Main scrollable content */}
+          <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
+            {/* Search Bar */}
             <div className="space-y-2">
-              <Label htmlFor="reminder-patient">Select Patient</Label>
-              <Select>
-                <SelectTrigger id="reminder-patient">
-                  <SelectValue placeholder="Choose patient" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="john">John Smith - 09:00 AM</SelectItem>
-                  <SelectItem value="emma">Emma Davis - 09:30 AM</SelectItem>
-                  <SelectItem value="robert">Robert Wilson - 10:00 AM</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="search-appointment">Search Appointments</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 size-4" />
+                <Input
+                  id="search-appointment"
+                  placeholder="Search by patient name, phone, or queue number..."
+                  className="pl-10"
+                  value={searchAppointmentTerm}
+                  onChange={(e) => setSearchAppointmentTerm(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="reminder-method">Send Via</Label>
-              <Select>
-                <SelectTrigger id="reminder-method">
-                  <SelectValue placeholder="Choose method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sms">SMS</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="both">Both SMS & Email</SelectItem>
-                </SelectContent>
-              </Select>
+
+            {/* Appointments List */}
+            <div className="border rounded-lg overflow-hidden">
+              <div className="p-4 border-b bg-gray-50">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="font-medium">Upcoming Appointments ({filteredAppointments.length})</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {selectedAppointment 
+                        ? `Selected: ${selectedAppointment.PatientName}` 
+                        : 'Showing only patients with accounts'}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {selectedAppointment && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => {
+                          setSelectedAppointment(null);
+                          setReminderMethod('sms');
+                          setReminderMessage('');
+                          fetchUpcomingAppointments(true);
+                        }}
+                        className="h-8 text-xs"
+                      >
+                        <X className="size-3 mr-1" />
+                        Clear Selection
+                      </Button>
+                    )}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => fetchUpcomingAppointments(true)}
+                      className="h-8 text-xs"
+                    >
+                      <RefreshCw className="size-3 mr-1" />
+                      Refresh
+                    </Button>
+                    {!selectedAppointment && (
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => fetchUpcomingAppointments(false)}
+                        className="h-8 text-xs"
+                      >
+                        <Users className="size-3 mr-1" />
+                        Show All
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="max-h-[300px] overflow-y-auto">
+                {filteredAppointments.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    <Calendar className="size-12 mx-auto mb-2 text-gray-300" />
+                    {selectedAppointment ? (
+                      <p>No appointment selected</p>
+                    ) : (
+                      <>
+                        <p>No upcoming appointments found</p>
+                        <p className="text-sm mt-1">Appointments are shown for next 48 hours (patients with accounts only)</p>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {filteredAppointments.map((appointment) => {
+                      const formatted = formatAppointmentDateTime(appointment.AppointmentDateTime);
+                      const isSelected = selectedAppointment?.AppointmentID === appointment.AppointmentID;
+                      
+                      return (
+                        <div
+                          key={appointment.AppointmentID}
+                          className={`p-4 cursor-pointer transition-colors hover:bg-gray-50 ${
+                            isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                          } ${
+                            !appointment.PatientAccountID ? 'opacity-60 bg-gray-50' : ''
+                          }`}
+                          onClick={() => {
+                            if (appointment.PatientAccountID) {
+                              setSelectedAppointment(appointment);
+                            }
+                          }}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{appointment.PatientName}</span>
+                                {appointment.QueueNumber && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {appointment.QueueNumber}
+                                  </Badge>
+                                )}
+                                {!appointment.PatientAccountID && (
+                                  <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300">
+                                    No Account
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                <div className="flex items-center gap-2">
+                                  <Calendar className="size-3" />
+                                  <span>{formatted.date} at {formatted.time}</span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Stethoscope className="size-3" />
+                                  <span>Dr. {appointment.DoctorName}</span>
+                                </div>
+                              </div>
+                              {appointment.Purpose && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Purpose: {appointment.Purpose}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs text-gray-500 mb-1">
+                                {appointment.PatientPhone || 'No phone'}
+                              </div>
+                              {!appointment.PatientAccountID && (
+                                <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300">
+                                  No Patient Account
+                                </Badge>
+                              )}
+                              {appointment.PatientAccountID && !isSelected && (
+                                <div className="text-xs text-blue-600">Click to select</div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {!appointment.PatientAccountID && (
+                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-100 rounded text-xs text-yellow-700">
+                              <p className="flex items-center gap-1">
+                                <AlertTriangle className="size-3" />
+                                This patient doesn't have an account. Ask them to create one at reception.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="reminder-message">Message</Label>
-              <Textarea
-                id="reminder-message"
-                defaultValue="This is a reminder for your appointment at HealthCare Clinic tomorrow."
-                rows={3}
-              />
-            </div>
-            <div className="flex gap-3">
-              <Button 
-                className="flex-1 bg-orange-600 hover:bg-orange-700" 
-                onClick={() => {
-                  alert('Reminder sent successfully!');
-                  setShowSendReminder(false);
-                }}
-              >
-                Send Reminder
-              </Button>
-              <Button variant="outline" onClick={() => setShowSendReminder(false)}>
-                Cancel
-              </Button>
-            </div>
+
+            {/* Reminder Details (only shown when appointment is selected) */}
+            {selectedAppointment && (
+              <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                <h3 className="font-medium">Reminder Details</h3>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="reminder-patient">Patient</Label>
+                    <Input
+                      id="reminder-patient"
+                      value={selectedAppointment.PatientName}
+                      disabled
+                      className="bg-white"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label htmlFor="reminder-datetime">Appointment Time</Label>
+                    <Input
+                      id="reminder-datetime"
+                      value={formatAppointmentDateTime(selectedAppointment.AppointmentDateTime).full}
+                      disabled
+                      className="bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reminder-method">Send Via *</Label>
+                  <Select value={reminderMethod} onValueChange={setReminderMethod}>
+                    <SelectTrigger id="reminder-method">
+                      <SelectValue placeholder="Choose method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sms">SMS (to {selectedAppointment.PatientPhone || 'No phone number'})</SelectItem>
+                      <SelectItem value="email">Email (to {selectedAppointment.PatientEmail || 'No email'})</SelectItem>
+                      <SelectItem value="both">Both SMS & Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {(!selectedAppointment.PatientPhone && reminderMethod.includes('sms')) || 
+                  (!selectedAppointment.PatientEmail && reminderMethod.includes('email')) ? (
+                    <p className="text-xs text-red-600">
+                      Patient is missing contact information for selected method
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reminder-message">Message *</Label>
+                  <Textarea
+                    id="reminder-message"
+                    value={reminderMessage}
+                    onChange={(e) => setReminderMessage(e.target.value)}
+                    rows={4}
+                    placeholder="Customize your reminder message..."
+                  />
+                  <p className="text-xs text-gray-500">
+                    Character count: {reminderMessage.length} (SMS limit: 160 characters)
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <Button 
+                    className="flex-1 bg-orange-600 hover:bg-orange-700" 
+                    onClick={handleSendReminder}
+                    disabled={sendingReminder || !selectedAppointment.PatientAccountID}
+                  >
+                    {sendingReminder ? (
+                      <>
+                        <RefreshCw className="size-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="size-4 mr-2" />
+                        Send Reminder
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setSelectedAppointment(null);
+                      setReminderMethod('sms');
+                      setReminderMessage('');
+                    }}
+                  >
+                    Clear Selection
+                  </Button>
+                  <Button variant="outline" onClick={() => setShowSendReminder(false)}>
+                    Cancel
+                  </Button>
+                </div>
+                
+                {!selectedAppointment.PatientAccountID && (
+                  <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <p className="text-sm text-yellow-800">
+                      ⚠️ This patient doesn't have a patient account. Reminders can only be sent to patients with accounts.
+                      Ask the patient to create an account at the reception.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -834,6 +2000,315 @@ export function CheckInQueue({ receptionistId, doctors, refreshData }: CheckInQu
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+{/* Cancel/Reschedule Appointment Dialog */}
+<Dialog open={showCancelAppointment} onOpenChange={setShowCancelAppointment}>
+  <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+    <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b">
+      <DialogTitle>Cancel/Reschedule Appointment</DialogTitle>
+      <DialogDescription>
+        Cancel or reschedule upcoming appointments
+      </DialogDescription>
+    </DialogHeader>
+    
+    {/* Main scrollable content */}
+    <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
+      {/* Search Bar */}
+      <div className="space-y-2">
+        <Label htmlFor="search-cancel-appointment">Search Appointments</Label>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 size-4" />
+          <Input
+            id="search-cancel-appointment"
+            placeholder="Search by patient name, phone, or appointment ID..."
+            className="pl-10"
+            value={searchCancellationTerm}
+            onChange={(e) => setSearchCancellationTerm(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Appointments List */}
+      <div className="border rounded-lg overflow-hidden">
+        <div className="p-4 border-b bg-gray-50">
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="font-medium">Upcoming Appointments ({filteredCancellationAppointments.length})</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                {selectedAppointmentForCancel 
+                  ? `Selected: ${selectedAppointmentForCancel.PatientName}` 
+                  : 'Select an appointment to cancel or reschedule'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {selectedAppointmentForCancel && (
+// In the Clear Selection button onClick handler
+<Button 
+  variant="outline" 
+  size="sm" 
+  onClick={() => {
+    setSelectedAppointmentForCancel(null);
+    setCancellationReason('');
+    setRescheduleDateTime('');
+    setShowReschedule(false);
+    setSearchCancellationTerm(''); // Also clear the search term
+  }}
+  className="h-8 text-xs"
+>
+  <X className="size-3 mr-1" />
+  Clear Selection
+</Button>
+              )}
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={fetchAppointmentsForCancellation}
+                className="h-8 text-xs"
+              >
+                <RefreshCw className="size-3 mr-1" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        <div className="max-h-[300px] overflow-y-auto">
+          {filteredCancellationAppointments.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              <CalendarX className="size-12 mx-auto mb-2 text-gray-300" />
+              {selectedAppointmentForCancel ? (
+                <p>No appointment selected</p>
+              ) : (
+                <>
+                  <p>No upcoming appointments found</p>
+                  <p className="text-sm mt-1">Appointments are shown for next 7 days</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="divide-y">
+              {filteredCancellationAppointments.map((appointment) => {
+                const formatted = formatAppointmentDateTime(appointment.AppointmentDateTime);
+                const isSelected = selectedAppointmentForCancel?.AppointmentID === appointment.AppointmentID;
+                const appointmentDate = new Date(appointment.AppointmentDateTime);
+                const now = new Date();
+                const hoursUntilAppointment = (appointmentDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+                
+                return (
+                  <div
+                    key={appointment.AppointmentID}
+                    className={`p-4 cursor-pointer transition-colors hover:bg-gray-50 ${
+                      isSelected ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                    }`}
+                    onClick={() => setSelectedAppointmentForCancel(appointment)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{appointment.PatientName}</span>
+                          {appointment.QueueNumber && (
+                            <Badge variant="outline" className="text-xs">
+                              Queue: {appointment.QueueNumber}
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className={`text-xs ${
+                            hoursUntilAppointment < 2 
+                              ? 'bg-red-50 text-red-700 border-red-300' 
+                              : hoursUntilAppointment < 24
+                              ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
+                              : 'bg-green-50 text-green-700 border-green-300'
+                          }`}>
+                            {hoursUntilAppointment < 2 
+                              ? 'Within 2 hours' 
+                              : hoursUntilAppointment < 24
+                              ? 'Within 24 hours'
+                              : `${Math.floor(hoursUntilAppointment / 24)} days`}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="size-3" />
+                            <span>{formatted.date} at {formatted.time}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Stethoscope className="size-3" />
+                            <span>Dr. {appointment.DoctorName} ({appointment.DoctorSpecialization})</span>
+                          </div>
+                        </div>
+                        {appointment.Purpose && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Purpose: {appointment.Purpose}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500 mb-1">
+                          ID: {appointment.AppointmentID}
+                        </div>
+                        {!isSelected && (
+                          <div className="text-xs text-blue-600">Select to cancel/reschedule</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Cancel/Reschedule Options (only shown when appointment is selected) */}
+      {selectedAppointmentForCancel && (
+        <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+          <h3 className="font-medium">Appointment Actions</h3>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label htmlFor="cancel-patient">Patient</Label>
+              <Input
+                id="cancel-patient"
+                value={selectedAppointmentForCancel.PatientName}
+                disabled
+                className="bg-white"
+              />
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="cancel-datetime">Appointment Time</Label>
+              <Input
+                id="cancel-datetime"
+                value={formatAppointmentDateTime(selectedAppointmentForCancel.AppointmentDateTime).full}
+                disabled
+                className="bg-white"
+              />
+            </div>
+          </div>
+
+          {/* Reschedule Option */}
+          {!showReschedule ? (
+            <div className="pt-2">
+              <Button 
+                variant="outline" 
+                className="w-full mb-3"
+                onClick={() => setShowReschedule(true)}
+              >
+                <CalendarCheck className="size-4 mr-2" />
+                Reschedule Instead of Cancel
+              </Button>
+              
+              <div className="space-y-2">
+                <Label htmlFor="cancellation-reason">Cancellation Reason *</Label>
+                <Textarea
+                  id="cancellation-reason"
+                  value={cancellationReason}
+                  onChange={(e) => setCancellationReason(e.target.value)}
+                  rows={3}
+                  placeholder="Please provide reason for cancellation (e.g., patient request, doctor unavailable, etc.)..."
+                />
+                <p className="text-xs text-gray-500">
+                  This reason will be recorded and may be shared with the patient.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  className="flex-1 bg-red-600 hover:bg-red-700" 
+                  onClick={handleCancelAppointment}
+                  disabled={cancellingAppointment || !cancellationReason.trim()}
+                >
+                  {cancellingAppointment ? (
+                    <>
+                      <RefreshCw className="size-4 mr-2 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <CalendarX className="size-4 mr-2" />
+                      Cancel Appointment
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setSelectedAppointmentForCancel(null);
+                    setCancellationReason('');
+                  }}
+                >
+                  Clear Selection
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="reschedule-datetime">New Appointment Date & Time *</Label>
+                <Input
+                  id="reschedule-datetime"
+                  type="datetime-local"
+                  value={rescheduleDateTime}
+                  onChange={(e) => setRescheduleDateTime(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  className="bg-white"
+                />
+                {rescheduleDateTime && (
+                  <p className="text-sm text-gray-600">
+                    New time: {formatAppointmentDateTime(rescheduleDateTime).full}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  className="flex-1 bg-green-600 hover:bg-green-700" 
+                  onClick={handleRescheduleAppointment}
+                  disabled={reschedulingAppointment || !rescheduleDateTime}
+                >
+                  {reschedulingAppointment ? (
+                    <>
+                      <RefreshCw className="size-4 mr-2 animate-spin" />
+                      Rescheduling...
+                    </>
+                  ) : (
+                    <>
+                      <CalendarCheck className="size-4 mr-2" />
+                      Confirm Reschedule
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowReschedule(false);
+                    setRescheduleDateTime('');
+                  }}
+                >
+                  Cancel Reschedule
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setSelectedAppointmentForCancel(null);
+                    setCancellationReason('');
+                    setRescheduleDateTime('');
+                    setShowReschedule(false);
+                  }}
+                >
+                  Clear Selection
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
+  </DialogContent>
+</Dialog>
+
+      <CreateAccountDialog />
+    </div>
+
+    
   );
 }

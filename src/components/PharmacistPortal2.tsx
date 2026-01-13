@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Search, Bell, LogOut, Pill, Package, TrendingDown, AlertTriangle, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Bell, LogOut, Pill, Package, AlertTriangle, Plus, PackagePlus, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,7 +7,6 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Label } from './ui/label';
-import { NotificationPanel } from './NotificationPanel';
 import { ProfileModal } from './ProfileModal';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -18,40 +17,103 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
   const [showProfile, setShowProfile] = useState(false);
   const [showAddItem, setShowAddItem] = useState(false);
   const [showDispense, setShowDispense] = useState(false);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'prescriptions' | 'expiry'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'prescriptions' | 'expiry' | 'addStock'>('inventory');
   const [selectedPrescription, setSelectedPrescription] = useState<any>(null);
   const [showEditItem, setShowEditItem] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [showReorder, setShowReorder] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const [showReceipt, setShowReceipt] = useState(false);
+  
+  // 🆕 NEW: Get the real logged-in user
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    // 1. Try to read user data from storage
+    const storedUser = localStorage.getItem('user');
+    
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    } else {
+      // 2. Safety: If no user is found (e.g. forced via test route), create a dummy fallback
+      // This keeps your "Dev Mode" working without crashing
+      setUser({
+        id: 14, 
+        name: 'Dev Pharmacist', 
+        role: 'pharmacist' 
+      });
+    }
+  }, []);
+
+  // ... rest of your code ...  
+
+  // ---------------------------------------------------------
+  // 🆕 STATE: Real Inventory Data from Database
+  // ---------------------------------------------------------
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [loadingInventory, setLoadingInventory] = useState(true);
+
+  // FETCH DATA ON LOAD
+  useEffect(() => {
+    fetchInventory();
+  }, [activeTab]); 
+
+  const fetchInventory = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/drugs');
+      const data = await response.json();
+      
+      if (Array.isArray(data)) {
+        const formattedData = data.map((drug: any) => {
+           const stock = drug.QuantityInStock || 0;
+           const minStock = drug.MinStockLevel || 10; 
+
+           let status = 'good';
+           if (stock === 0) status = 'critical';
+           else if (stock <= minStock) status = 'low';
+
+           return {
+             id: drug.DrugID,
+             name: drug.DrugName,
+             stock: stock,
+             minStock: minStock,
+             status: status,
+             location: drug.Location || 'Pharmacy', 
+             category: drug.Category
+           };
+        });
+        setInventoryItems(formattedData);
+      }
+    } catch (error) {
+      console.error("Failed to load inventory:", error);
+    } finally {
+      setLoadingInventory(false);
+    }
+  };
+
+  // Filter based on Search Query
+  const filteredInventory = inventoryItems.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  
+  // Calculate Low Stock Alerts for the Dashboard
+  const lowStockItems = inventoryItems.filter(item => item.status === 'low' || item.status === 'critical');
 
   const pharmacistProfile = {
-    name: 'Robert Wilson',
+    // Use real name/ID, or fallback to 'Loading...' if state isn't ready
+    name: user?.name || 'Loading...',
+    id: user?.id || 0, 
     role: 'Pharmacist',
     department: 'Pharmacy',
-    email: 'robert.wilson@clinic.com',
+    email: user?.email || 'pharmacy@clinic.com',
+    // ... keep the rest static for now ...
     phone: '+1 (555) 678-9012',
-    initials: 'RW',
+    initials: user?.name ? user.name.substring(0, 2).toUpperCase() : 'PH',
     joinDate: 'March 2019',
     specialization: 'Clinical Pharmacy',
     certifications: ['Licensed Pharmacist', 'Immunization Certified', 'MTM Certified']
   };
-
-  const inventory = [
-    { id: 1, name: 'Amoxicillin 500mg', stock: 450, minStock: 200, status: 'good', location: 'A-12' },
-    { id: 2, name: 'Paracetamol 500mg', stock: 180, minStock: 300, status: 'low', location: 'B-05' },
-    { id: 3, name: 'Ibuprofen 400mg', stock: 520, minStock: 250, status: 'good', location: 'A-15' },
-    { id: 4, name: 'Lisinopril 10mg', stock: 75, minStock: 150, status: 'critical', location: 'C-08' },
-    { id: 5, name: 'Metformin 850mg', stock: 340, minStock: 200, status: 'good', location: 'B-12' },
-    { id: 6, name: 'Omeprazole 20mg', stock: 165, minStock: 200, status: 'low', location: 'C-03' }
-  ];
-
-  const pendingPrescriptions = [
-    { id: 1, patient: 'John Smith', doctor: 'Dr. Johnson', medication: 'Amoxicillin 500mg', quantity: 30, status: 'pending' },
-    { id: 2, patient: 'Emma Davis', doctor: 'Dr. Chen', medication: 'Paracetamol 500mg', quantity: 20, status: 'ready' },
-    { id: 3, patient: 'Robert Wilson', doctor: 'Dr. Brown', medication: 'Ibuprofen 400mg', quantity: 40, status: 'pending' }
-  ];
 
   const expiringMeds = [
     { name: 'Aspirin 100mg', stock: 200, location: 'A-10', expiryDate: '2024-12-15', daysLeft: 29 },
@@ -59,17 +121,267 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
     { name: 'Vitamin C 500mg', stock: 150, location: 'C-05', expiryDate: '2025-01-10', daysLeft: 55 }
   ];
 
-  const dispensingHistory = [
-    { patient: 'John Smith', medication: 'Lisinopril 10mg', quantity: 30, date: '2024-11-16 09:30' },
-    { patient: 'Emma Davis', medication: 'Amoxicillin 500mg', quantity: 21, date: '2024-11-16 10:15' },
-    { patient: 'Sarah Johnson', medication: 'Metformin 850mg', quantity: 60, date: '2024-11-16 11:00' }
-  ];
+  // ---------------------------------------------------------
+  // 🆕 STATE: Pending Prescriptions
+  // ---------------------------------------------------------
+  const [pendingRxList, setPendingRxList] = useState<any[]>([]);
 
-  const lowStockItems = inventory.filter(item => item.status === 'low' || item.status === 'critical');
+  // Fetch on load
+  useEffect(() => {
+    fetchPendingRx();
+  }, []);
 
-  const filteredInventory = inventory.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+ const fetchPendingRx = async () => {
+    try {
+      // 1. Get the token from storage (Standard practice)
+      const token = localStorage.getItem('token'); 
+
+      const response = await fetch('http://localhost:3001/api/pharmacist/pending-rx', {
+        headers: {
+            // 2. Send the token to prove we are logged in
+            'Authorization': `Bearer ${token}`, 
+            'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+         throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // 3. SAFETY CHECK: Only set data if it is actually a list (Array)
+      if (Array.isArray(data)) {
+        setPendingRxList(data);
+      } else {
+        console.error("Received invalid data format:", data);
+        setPendingRxList([]); // Default to empty list to prevent crash
+      }
+
+    } catch (error) {
+      console.error("Error loading RX:", error);
+      setPendingRxList([]); // Safe fallback
+    }
+  };
+
+  const [dispensingHistory, setDispensingHistory] = useState<any[]>([]);
+
+  const handleDispenseConfirm = async () => {
+    if (!selectedPrescription) return;
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/pharmacist/dispense/${selectedPrescription.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: 'Dispensed by Pharmacist' }) // You can connect this to the notes input later
+      });
+
+      if (response.ok) {
+        alert("✅ Medication Dispensed!");
+        setShowDispense(false);
+        fetchPendingRx(); // Refresh list to remove the item
+        
+        // Optional: Deduct stock from inventory here (advanced step)
+        fetchInventory(); 
+      }
+    } catch (error) {
+      alert("❌ Failed to dispense");
+    }
+  };
+
+  // ---------------------------------------------------------
+  // STATE: Registering Drug 
+  // ---------------------------------------------------------
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [newItemData, setNewItemData] = useState({
+    DrugName: '',
+    BarcodeID: '',
+    Category: '',
+    UnitPrice: '',
+    QuantityInStock: '',
+    ExpiryDate: ''
+  });
+
+  // ---------------------------------------------------------
+  // 🆕 STATE: Reordering Stock
+  // ---------------------------------------------------------
+  const [isReordering, setIsReordering] = useState(false);
+  const [reorderFormData, setReorderFormData] = useState({
+    quantity: '',
+    supplier: '',
+    urgency: 'medium', // Default value
+    notes: ''
+  });
+
+  // Reset reorder form when a new item is selected
+  useEffect(() => {
+    if (selectedItem && showReorder) {
+        setReorderFormData({
+            quantity: (selectedItem.minStock * 2).toString(), // Default suggest 2x min stock
+            supplier: '',
+            // Auto-select urgency based on status
+            urgency: selectedItem.status === 'critical' ? 'critical' : 'medium', 
+            notes: ''
+        });
+    }
+  }, [selectedItem, showReorder]);
+
+
+  // ---------------------------------------------------------
+  // STATE: Rapid Restock Mode
+  // ---------------------------------------------------------
+  const [showRestockMode, setShowRestockMode] = useState(false);
+  const [restockInput, setRestockInput] = useState('');
+  
+  const [scanHistory, setScanHistory] = useState<Array<{
+      barcode: string, 
+      name: string, 
+      count: number, 
+      status: 'success' | 'error', 
+      time: string
+  }>>([]);
+
+  const handleRestockScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const barcode = restockInput.trim();
+      if (!barcode) return;
+
+      try {
+        const response = await fetch('http://localhost:3001/api/drug/restock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ BarcodeID: barcode }),
+        });
+
+        const data = await response.json();
+        const timestamp = new Date().toLocaleTimeString();
+
+        setScanHistory(prev => {
+          const existingIndex = prev.findIndex(item => item.barcode === barcode);
+
+          if (existingIndex !== -1) {
+            const updatedHistory = [...prev];
+            const existingItem = updatedHistory[existingIndex];
+            updatedHistory.splice(existingIndex, 1);
+
+            return [{
+              ...existingItem,
+              count: existingItem.count + 1,
+              time: timestamp,
+              status: response.ok ? 'success' : 'error'
+            }, ...updatedHistory];
+
+          } else {
+            return [{
+              barcode: barcode,
+              name: response.ok ? data.drug.DrugName : `Unknown: ${barcode}`, 
+              count: 1,
+              status: response.ok ? 'success' : 'error', 
+              time: timestamp
+            }, ...prev];
+          }
+        });
+
+        if (response.ok) {
+            fetchInventory(); 
+        }
+
+      } catch (error) {
+        console.error(error);
+      }
+
+      setRestockInput('');
+    }
+  };
+
+  // ---------------------------------------------------------
+  // 🆕 FUNCTION: Submit Reorder Request to Backend
+  // ---------------------------------------------------------
+  const handleSubmitReorder = async () => {
+    if (!selectedItem || !reorderFormData.quantity || !reorderFormData.supplier) {
+        alert("Please fill in quantity and supplier.");
+        return;
+    }
+
+    setIsReordering(true);
+
+    try {
+        const response = await fetch('http://localhost:3001/api/admin/drug-requests', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                drugId: selectedItem.id,
+                quantity: parseInt(reorderFormData.quantity),
+                urgency: reorderFormData.urgency, // Matches DB values: low, medium, high, critical
+                supplier: reorderFormData.supplier,
+                reason: reorderFormData.notes,
+                requestedBy: user?.id || 14
+            }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            alert("✅ Reorder request submitted successfully!");
+            setShowReorder(false);
+            setReorderFormData({ quantity: '', supplier: '', urgency: 'medium', notes: '' });
+        } else {
+            throw new Error(data.error || "Failed to submit reorder");
+        }
+
+    } catch (error: any) {
+        console.error("Reorder error:", error);
+        alert(`❌ Error: ${error.message}`);
+    } finally {
+        setIsReordering(false);
+    }
+  };
+
+
+  const handleRegisterDrug = async () => {
+    if (!newItemData.DrugName || !newItemData.BarcodeID) {
+      alert('⚠️ Drug Name and Barcode are required!');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('http://localhost:3001/api/drug/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newItemData,
+          UnitPrice: parseFloat(newItemData.UnitPrice) || 0,
+          QuantityInStock: parseInt(newItemData.QuantityInStock) || 0,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('✅ ' + data.message);
+        setShowAddItem(false);
+        setNewItemData({
+          DrugName: '',
+          BarcodeID: '',
+          Category: '',
+          UnitPrice: '',
+          QuantityInStock: '',
+          ExpiryDate: ''
+        });
+        fetchInventory(); 
+      } else {
+        alert('❌ ' + (data.error || 'Failed to add drug'));
+      }
+    } catch (error) {
+      console.error(error);
+      alert('❌ Connection failed. Is the server running?');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -92,11 +404,11 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
             </Button>
             <div className="flex items-center gap-3">
               <Avatar>
-                <AvatarFallback className="bg-purple-600 text-white">PH</AvatarFallback>
+                <AvatarFallback className="bg-purple-600 text-white">{pharmacistProfile.initials}</AvatarFallback>
               </Avatar>
               <div className="hidden sm:block">
-                <p className="text-sm text-gray-900">Robert Wilson</p>
-                <p className="text-xs text-gray-500">Pharmacist</p>
+                <p className="text-sm text-gray-900">{pharmacistProfile.name}</p>
+                <p className="text-xs text-gray-500">{pharmacistProfile.role}</p>
               </div>
             </div>
             <Button variant="ghost" onClick={onSignOut}>
@@ -112,7 +424,7 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
           <div>
             <h2 className="text-2xl text-gray-900 mb-1">Pharmacy Dashboard</h2>
             <p className="text-sm text-gray-500">Manage medication inventory and prescriptions</p>
-          </div>
+          </div>  
 
           {/* Tab Navigation */}
           <div className="flex gap-2 border-b">
@@ -149,12 +461,26 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
               <AlertTriangle className="size-4 inline mr-2" />
               Expiry Tracking
             </button>
+            
+            <button
+              onClick={() => setActiveTab('addStock')}
+              className={`px-4 py-2 border-b-2 transition-colors ${
+                activeTab === 'addStock'
+                  ? 'border-purple-600 text-purple-600'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <PackagePlus className="size-4 inline mr-2" />
+              + Add Stock
+            </button>
+
           </div>
 
           {activeTab === 'inventory' && (
-            <>
-              {/* Inventory Management */}
-              <Card className="lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6"> 
+              
+              {/* LEFT SIDE: Inventory Management (Takes 2/3 width) */}
+              <Card className="lg:col-span-2 h-fit">
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
@@ -162,18 +488,18 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
                       <CardDescription>Current stock levels</CardDescription>
                     </div>
                     <div className="flex gap-2">
-                      <div className="relative w-64">
+                      <div className="relative w-48"> 
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                         <Input
-                          placeholder="Search medication..."
+                          placeholder="Search..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-10"
                         />
                       </div>
                       <Button className="bg-purple-600 hover:bg-purple-700" onClick={() => setShowAddItem(true)}>
-                        <Plus className="size-4 mr-2" />
-                        Add Item
+                        <Plus className="size-4" />
+                        <span className="ml-2 hidden sm:inline">Add</span>
                       </Button>
                     </div>
                   </div>
@@ -191,17 +517,24 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
+                        {filteredInventory.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+                                    No items found.
+                                </TableCell>
+                            </TableRow>
+                        )}
                         {filteredInventory.map((item) => (
                           <TableRow key={item.id}>
                             <TableCell>
-                              <p className="text-sm text-gray-900">{item.name}</p>
+                              <p className="text-sm text-gray-900 font-medium">{item.name}</p>
+                              <p className="text-xs text-gray-500">{item.category}</p>
                             </TableCell>
                             <TableCell>
                               <Badge variant="outline">{item.location}</Badge>
                             </TableCell>
                             <TableCell>
-                              <p className="text-sm text-gray-900">{item.stock} units</p>
-                              <p className="text-xs text-gray-500">Min: {item.minStock}</p>
+                              <p className="text-sm text-gray-900">{item.stock}</p>
                             </TableCell>
                             <TableCell>
                               <Badge
@@ -222,7 +555,7 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
                                 setSelectedItem(item);
                                 setShowEditItem(true);
                               }}>
-                                Update
+                                Edit
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -233,54 +566,63 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
                 </CardContent>
               </Card>
 
-              {/* Pending Prescriptions */}
-              <Card>
+              {/* RIGHT SIDE: Pending Prescriptions (Takes 1/3 width) */}
+              <Card className="lg:col-span-1 h-fit">
                 <CardHeader>
-                  <CardTitle>Pending Prescriptions</CardTitle>
-                  <CardDescription>Prescriptions to fulfill</CardDescription>
+                  <CardTitle>Pending RX</CardTitle>
+                  <CardDescription>Queue to fulfill</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {pendingPrescriptions.map((prescription) => (
+                    {/* RIGHT SIDE: Pending Prescriptions (Takes 1/3 width) */}
+              <Card className="lg:col-span-1 h-fit">
+                <CardHeader>
+                  <CardTitle>Pending RX</CardTitle>
+                  <CardDescription>Queue to fulfill</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {pendingRxList.length === 0 && <p className="text-gray-500 text-center py-4">No pending prescriptions.</p>}
+                    
+                    {pendingRxList.map((prescription) => (
                       <div
                         key={prescription.id}
-                        className="p-3 border border-gray-200 rounded-lg"
+                        className="p-3 border border-gray-200 rounded-lg bg-white shadow-sm"
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <p className="text-sm text-gray-900">{prescription.patient}</p>
+                            <p className="text-sm font-medium text-gray-900">{prescription.patient}</p>
                             <p className="text-xs text-gray-500">{prescription.doctor}</p>
                           </div>
-                          <Badge
-                            variant={prescription.status === 'ready' ? 'default' : 'secondary'}
-                            className={
-                              prescription.status === 'ready'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-orange-100 text-orange-800'
-                            }
-                          >
+                          <Badge className="bg-orange-100 text-orange-800">
                             {prescription.status}
                           </Badge>
                         </div>
-                        <p className="text-sm text-gray-700 mb-1">{prescription.medication}</p>
-                        <p className="text-xs text-gray-500 mb-3">Qty: {prescription.quantity}</p>
+                        <div className="mb-3">
+                            <p className="text-sm text-purple-700 font-medium">{prescription.medication}</p>
+                            <p className="text-xs text-gray-500">
+                                Qty: {prescription.quantity} • {prescription.dosage}
+                            </p>
+                        </div>
                         <Button
                           size="sm"
-                          className="w-full"
-                          variant={prescription.status === 'ready' ? 'default' : 'outline'}
+                          className="w-full bg-purple-600 hover:bg-purple-700"
                           onClick={() => {
                             setSelectedPrescription(prescription);
                             setShowDispense(true);
                           }}
                         >
-                          {prescription.status === 'ready' ? 'Dispense' : 'Prepare'}
+                          Prepare
                         </Button>
                       </div>
                     ))}
                   </div>
                 </CardContent>
               </Card>
-            </>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeTab === 'prescriptions' && (
@@ -371,6 +713,55 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
             </Card>
           )}
 
+          {activeTab === 'addStock' && (
+            <div className="max-w-4xl mx-auto pt-8">
+              <div className="grid md:grid-cols-2 gap-6">
+                
+                {/* CARD 1: REGISTER NEW DRUG */}
+                <Card className="hover:border-purple-400 transition-all cursor-pointer" onClick={() => setShowAddItem(true)}>
+                  <CardHeader className="text-center pb-2">
+                    <div className="mx-auto bg-purple-100 p-4 rounded-full mb-4 w-16 h-16 flex items-center justify-center">
+                      <Plus className="size-8 text-purple-600" />
+                    </div>
+                    <CardTitle>Register New Drug</CardTitle>
+                    <CardDescription>Add a completely new item to the database</CardDescription>
+                  </CardHeader>
+                  <CardContent className="text-center">
+                    <Button className="bg-purple-600 hover:bg-purple-700 w-full">
+                      Open Registration Form
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* CARD 2: RAPID RESTOCK */}
+                <Card className="hover:border-blue-400 transition-all cursor-pointer" onClick={() => setShowRestockMode(true)}>
+                  <CardHeader className="text-center pb-2">
+                    <div className="mx-auto bg-blue-100 p-4 rounded-full mb-4 w-16 h-16 flex items-center justify-center">
+                      <PackagePlus className="size-8 text-blue-600" />
+                    </div>
+                    <CardTitle>Restock Scanner</CardTitle>
+                    <CardDescription>Scan items to quickly add stock (+1)</CardDescription>
+                  </CardHeader>
+                  <CardContent className="text-center">
+                    <Button className="bg-blue-600 hover:bg-blue-700 w-full">
+                      Start Scanning Mode
+                    </Button>
+                  </CardContent>
+                </Card>
+
+              </div>
+
+              {/* Helper Text */}
+              <div className="mt-8 text-center text-gray-500 bg-white p-6 rounded-lg border">
+                <h3 className="font-semibold text-gray-700 mb-2">How it works</h3>
+                <p className="text-sm">
+                  <strong>Register New:</strong> Use this when you receive a new drug that isn't in the system yet.<br/>
+                  <strong>Restock Scanner:</strong> Use this for daily refills. Just scan the box, and the system automatically adds +1 to the inventory.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Low Stock Alerts */}
           {lowStockItems.length > 0 && (
             <Card className="border-orange-200 bg-orange-50">
@@ -416,61 +807,109 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
         profile={pharmacistProfile}
       />
 
-      {/* Add Item Dialog */}
+      {/* ========================================================= */}
+      {/* ADD ITEM DIALOG                                           */}
+      {/* ========================================================= */}
       <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New Medication</DialogTitle>
-            <DialogDescription>Add a new item to the pharmacy inventory</DialogDescription>
+            <DialogDescription>Scan the item to register it in the database</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            
+            {/* DRUG NAME */}
             <div className="space-y-2">
-              <Label htmlFor="med-name">Medication Name</Label>
-              <Input id="med-name" placeholder="e.g., Amoxicillin 500mg" />
+              <Label htmlFor="med-name">Medication Name *</Label>
+              <Input 
+                id="med-name" 
+                placeholder="e.g., Amoxicillin 500mg" 
+                value={newItemData.DrugName}
+                onChange={(e) => setNewItemData({...newItemData, DrugName: e.target.value})}
+                autoFocus 
+              />
             </div>
+
+            {/* BARCODE INPUT (Ready for Physical Scanner) */}
+            <div className="space-y-2">
+              <Label htmlFor="barcode">Barcode ID *</Label>
+              <Input 
+                id="barcode" 
+                placeholder="Click here and scan item..." 
+                value={newItemData.BarcodeID}
+                onChange={(e) => setNewItemData({...newItemData, BarcodeID: e.target.value})}
+              />
+            </div>
+
+            {/* STOCK FIELDS */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="stock">Initial Stock</Label>
-                <Input id="stock" type="number" placeholder="0" />
+                <Input 
+                  id="stock" 
+                  type="number" 
+                  placeholder="0" 
+                  value={newItemData.QuantityInStock}
+                  onChange={(e) => setNewItemData({...newItemData, QuantityInStock: e.target.value})}
+                />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="min-stock">Minimum Stock</Label>
-                <Input id="min-stock" type="number" placeholder="0" />
+                <Label htmlFor="min-stock">Min Stock Alert</Label>
+                <Input id="min-stock" type="number" placeholder="10" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="location">Storage Location</Label>
-              <Input id="location" placeholder="e.g., A-12" />
-            </div>
+
+            {/* CATEGORY SELECT */}
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
-              <Select>
+              <Select onValueChange={(value) => setNewItemData({...newItemData, Category: value})}>
                 <SelectTrigger id="category">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="antibiotic">Antibiotic</SelectItem>
-                  <SelectItem value="analgesic">Analgesic</SelectItem>
-                  <SelectItem value="cardiovascular">Cardiovascular</SelectItem>
-                  <SelectItem value="diabetes">Diabetes</SelectItem>
-                  <SelectItem value="respiratory">Respiratory</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  <SelectItem value="Antibiotic">Antibiotic</SelectItem>
+                  <SelectItem value="Analgesic">Analgesic</SelectItem>
+                  <SelectItem value="Antipyretic">Antipyretic</SelectItem>
+                  <SelectItem value="Cardiovascular">Cardiovascular</SelectItem>
+                  <SelectItem value="Diabetes">Diabetes</SelectItem>
+                  <SelectItem value="Respiratory">Respiratory</SelectItem>
+                  <SelectItem value="General">General</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {/* PRICE & EXPIRY */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="expiry">Expiry Date</Label>
-                <Input id="expiry" type="date" />
+                <Input 
+                  id="expiry" 
+                  type="date" 
+                  value={newItemData.ExpiryDate}
+                  onChange={(e) => setNewItemData({...newItemData, ExpiryDate: e.target.value})}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="unit-price">Unit Price ($)</Label>
-                <Input id="unit-price" type="number" step="0.01" placeholder="0.00" />
+                <Input 
+                  id="unit-price" 
+                  type="number" 
+                  step="0.01" 
+                  placeholder="0.00" 
+                  value={newItemData.UnitPrice}
+                  onChange={(e) => setNewItemData({...newItemData, UnitPrice: e.target.value})}
+                />
               </div>
             </div>
-            <div className="flex gap-3">
-              <Button className="flex-1 bg-purple-600 hover:bg-purple-700">
-                Add Medication
+
+            {/* ACTIONS */}
+            <div className="flex gap-3 pt-2">
+              <Button 
+                className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                onClick={handleRegisterDrug}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Saving...' : 'Add Medication'}
               </Button>
               <Button variant="outline" onClick={() => setShowAddItem(false)}>
                 Cancel
@@ -522,7 +961,10 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
                 />
               </div>
               <div className="flex gap-3">
-                <Button className="flex-1 bg-purple-600 hover:bg-purple-700">
+                <Button 
+                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  onClick={handleDispenseConfirm} 
+                >
                   Confirm Dispensing
                 </Button>
                 <Button variant="outline" onClick={() => setShowDispense(false)}>
@@ -567,7 +1009,9 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {/* Reorder Dialog */}
+      {/* ========================================================= */}
+      {/* 🆕 UPDATED: Reorder Dialog with Urgency Dropdown          */}
+      {/* ========================================================= */}
       <Dialog open={showReorder} onOpenChange={setShowReorder}>
         <DialogContent>
           <DialogHeader>
@@ -590,35 +1034,83 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
                   <span className="text-gray-900">{selectedItem.minStock}</span>
                 </div>
               </div>
+
+              {/* Quantity Input */}
               <div className="space-y-2">
-                <Label htmlFor="reorder-quantity">Reorder Quantity</Label>
-                <Input id="reorder-quantity" type="number" defaultValue={selectedItem.minStock * 2} />
+                <Label htmlFor="reorder-quantity">Reorder Quantity *</Label>
+                <Input 
+                    id="reorder-quantity" 
+                    type="number" 
+                    value={reorderFormData.quantity} 
+                    onChange={(e) => setReorderFormData({...reorderFormData, quantity: e.target.value})}
+                />
               </div>
+
+              {/* 🆕 Urgency Dropdown (Matching DB Values) */}
               <div className="space-y-2">
-                <Label htmlFor="supplier">Supplier</Label>
-                <Select>
+                <Label htmlFor="reorder-urgency">Urgency *</Label>
+                <Select 
+                    value={reorderFormData.urgency} 
+                    onValueChange={(value) => setReorderFormData({...reorderFormData, urgency: value})}
+                >
+                  <SelectTrigger id="reorder-urgency">
+                    <SelectValue placeholder="Select urgency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="critical">Critical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Supplier Input */}
+              <div className="space-y-2">
+                <Label htmlFor="supplier">Supplier *</Label>
+                <Select
+                    value={reorderFormData.supplier} 
+                    onValueChange={(value) => setReorderFormData({...reorderFormData, supplier: value})}
+                >
                   <SelectTrigger id="supplier">
                     <SelectValue placeholder="Select supplier" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="medplus">MedPlus Pharmaceuticals</SelectItem>
-                    <SelectItem value="healthsupply">HealthSupply Inc.</SelectItem>
-                    <SelectItem value="pharmacy-direct">Pharmacy Direct</SelectItem>
+                    <SelectItem value="MedPlus Pharmaceuticals">MedPlus Pharmaceuticals</SelectItem>
+                    <SelectItem value="HealthSupply Inc.">HealthSupply Inc.</SelectItem>
+                    <SelectItem value="Pharmacy Direct">Pharmacy Direct</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Notes Input */}
               <div className="space-y-2">
                 <Label htmlFor="reorder-notes">Notes</Label>
-                <Textarea id="reorder-notes" placeholder="Urgency, special instructions..." rows={2} />
+                <Textarea 
+                    id="reorder-notes" 
+                    placeholder="Special instructions..." 
+                    rows={2} 
+                    value={reorderFormData.notes}
+                    onChange={(e) => setReorderFormData({...reorderFormData, notes: e.target.value})}
+                />
               </div>
+
+              {/* Actions */}
               <div className="flex gap-3">
-                <Button className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={() => {
-                  alert('Reorder placed successfully!');
-                  setShowReorder(false);
-                }}>
-                  Place Reorder
+                <Button 
+                    className="flex-1 bg-purple-600 hover:bg-purple-700" 
+                    onClick={handleSubmitReorder}
+                    disabled={isReordering}
+                >
+                  {isReordering ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Submitting...
+                    </>
+                  ) : (
+                    'Place Reorder'
+                  )}
                 </Button>
-                <Button variant="outline" onClick={() => setShowReorder(false)}>
+                <Button variant="outline" onClick={() => setShowReorder(false)} disabled={isReordering}>
                   Cancel
                 </Button>
               </div>
@@ -678,6 +1170,100 @@ export function PharmacistPortal2({ onSignOut }: { onSignOut: () => void }) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ========================================================= */}
+      {/* RAPID RESTOCK MODE DIALOG                                 */}
+      {/* ========================================================= */}
+      <Dialog open={showRestockMode} onOpenChange={setShowRestockMode}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackagePlus className="size-6 text-blue-600" />
+              Rapid Restock Mode
+            </DialogTitle>
+            <DialogDescription>
+              Scan items one by one. The system will auto-save. Press Cancel to finish.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* SCANNER INPUT FIELD */}
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <div className="relative w-full">
+                <Input 
+                  autoFocus
+                  placeholder="Scan barcode here..." 
+                  className="h-16 text-lg text-center border-2 border-blue-200 focus:border-blue-500"
+                  value={restockInput}
+                  onChange={(e) => setRestockInput(e.target.value)}
+                  onKeyDown={handleRestockScan}
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 animate-pulse">
+                  📷 Ready to Scan
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">Ensure your scanner cursor is in the box above</p>
+            </div>
+
+            {/* LIVE SCAN HISTORY LOG */}
+            <div className="bg-gray-50 rounded-lg p-4 border h-64 overflow-y-auto">
+              <div className="flex justify-between items-center border-b pb-2 mb-3">
+                 <h4 className="text-sm font-semibold text-gray-700">Session History</h4>
+                 {scanHistory.length > 0 && (
+                   <span className="text-xs text-gray-400 cursor-pointer hover:text-red-500" onClick={() => setScanHistory([])}>
+                     Clear History
+                   </span>
+                 )}
+              </div>
+
+              {scanHistory.length === 0 ? (
+                <div className="text-center text-gray-400 py-10">No items scanned yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {scanHistory.map((log) => (
+                    <div key={log.barcode} className={`flex justify-between items-center p-3 rounded border transition-all ${
+                      log.status === 'success' ? 'bg-white border-green-200 shadow-sm' : 'bg-red-50 border-red-200'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        {log.status === 'success' ? (
+                          <div className="flex items-center justify-center w-9 h-9 rounded-full bg-green-600 text-white font-bold text-sm shadow-sm">
+                            +{log.count}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center w-9 h-9 rounded-full bg-red-600 text-white font-bold text-lg shadow-sm">
+                            !
+                          </div>
+                        )}
+                        <div>
+                            <p className={log.status === 'success' ? 'font-medium text-gray-800' : 'font-medium text-red-700'}>
+                              {log.name}
+                            </p>
+                            {log.count > 1 && (
+                                <p className="text-xs text-green-600 font-medium">
+                                    Added {log.count} units total
+                                </p>
+                            )}
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-400">{log.time}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => {
+              setShowRestockMode(false);
+              setScanHistory([]); 
+            }}>
+              Finish & Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>    
+
     </div>
   );
 }

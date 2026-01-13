@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { 
-  Search, Bell, LogOut, Pill, Package, 
-  AlertTriangle, Plus, RefreshCcw, User as UserIcon, Loader2,
-  Barcode, ArrowDownCircle, PackagePlus, CheckCircle
+  Search, Bell, LogOut, Pill, Package, AlertTriangle, Plus, PackagePlus, 
+  Loader2, RefreshCw, ScanLine, CheckCircle2, ArrowUpDown, ChevronLeft, 
+  ChevronRight, History, DollarSign, Trash2, AlertOctagon, ChevronDown, Calendar, Hash
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -10,681 +11,662 @@ import { Input } from '../ui/input';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
-import Swal from 'sweetalert2';
-import axios from 'axios';
-import { useAuth } from '../../contexts/AuthContext';
-import { NotificationPanel } from '../NotificationPanel';
 import { ProfileModal } from '../ProfileModal';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
-interface Prescription {
-  id: number;
-  ItemID: number;
-  patient: string;
-  doctor: string;
-  medication: string;
-  quantity: number;
-  status: string;
-}
-
-interface InventoryItem {
-  id: number;
-  name: string;
-  stock: number;
-  minStock: number;
-  location: string;
-  status: 'good' | 'low' | 'critical';
-}
-
-// Added interfaces for new UI features
-interface ExpiringMed {
-  name: string;
-  stock: number;
-  location: string;
-  expiryDate: string;
-  daysLeft: number;
-}
-
 export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
-  const { user } = useAuth();
+  // =========================
+  // 1. STATE MANAGEMENT
+  // =========================
+  
+  // UI States
   const [searchQuery, setSearchQuery] = useState('');
   const [showProfile, setShowProfile] = useState(false);
-  const [showAddItem, setShowAddItem] = useState(false);
-  const [showDispense, setShowDispense] = useState(false);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'prescriptions' | 'expiry'>('inventory');
-  const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null);
-  const [showEditItem, setShowEditItem] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
-  const [showReorder, setShowReorder] = useState(false);
-  const [showReceipt, setShowReceipt] = useState(false);
-  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'inventory' | 'prescriptions' | 'expiry' | 'addStock'>('inventory');
   
-  // --- EXISTING STATE FROM OLD COMPONENT ---
-  const [showRestockDialog, setShowRestockDialog] = useState(false);
-  const [restockItem, setRestockItem] = useState<InventoryItem | null>(null);
-  const [restockQty, setRestockQty] = useState('');
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [pendingPrescriptions, setPendingPrescriptions] = useState<Prescription[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [scannedCode, setScannedCode] = useState<string>('');
-  const [scanMode, setScanMode] = useState<'dispense' | 'restock'>('dispense');
-  const [expiringMeds, setExpiringMeds] = useState<ExpiringMed[]>([]);
+  // Batch Inspector State
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
+  const [batchDetails, setBatchDetails] = useState<any[]>([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+
+  // Data States
+  const [user, setUser] = useState<any>(null);
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [loadingInventory, setLoadingInventory] = useState(true);
+  const [pendingRxList, setPendingRxList] = useState<any[]>([]);
   const [dispensingHistory, setDispensingHistory] = useState<any[]>([]);
+  const [expiringItems, setExpiringItems] = useState<any[]>([]);
+  
+  // --- PAGINATION STATES ---
+  // Inventory (Existing)
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 6; 
+  
+  // Dispensing History (UPDATED LIMIT)
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPerPage = 13; // 👈 Changed to 13
 
-  // --- EXISTING BACKEND FUNCTIONS FROM OLD COMPONENT ---
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem('token');
+  // Expiry Tracking (UPDATED LIMIT)
+  const [expiryPage, setExpiryPage] = useState(1);
+  const expiryPerPage = 10; // 👈 Changed to 10
 
-      if (!token) {
-        console.error("No token found in localStorage");
-        Swal.fire({ icon: 'error', title: 'Session Expired', text: 'Please login again.' });
-        return;
-      }
+  // Sorting
+  const [sortOption, setSortOption] = useState('name-asc');
 
-      const headers: HeadersInit = {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      };
+  // Dialog Visibility
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showEditItem, setShowEditItem] = useState(false);
+  const [showReorder, setShowReorder] = useState(false);
+  const [showRestockMode, setShowRestockMode] = useState(false);
+  const [showDispenseScanner, setShowDispenseScanner] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [showDisposeDialog, setShowDisposeDialog] = useState(false);
+  
+  // Selected Data
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [selectedPrescriptionGroup, setSelectedPrescriptionGroup] = useState<any>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
 
-      // Fetch inventory
-      const invRes = await fetch('http://localhost:3001/api/pharmacist/inventory', { headers });
-      if (!invRes.ok) throw new Error("Failed to fetch inventory");
+  // Loaders
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
 
-      const invData = await invRes.json();
-      const mappedInventory: InventoryItem[] = Array.isArray(invData)
-        ? invData.map((item: any) => ({
-            id: item.DrugID,
-            name: item.DrugName,
-            stock: item.QuantityInStock,
-            minStock: item.MinStockLevel,
-            location: item.Location || "Storage",
-            status:
-              item.QuantityInStock <= item.MinStockLevel * 0.2
-                ? "critical"
-                : item.QuantityInStock <= item.MinStockLevel
-                ? "low"
-                : "good",
-          }))
-        : [];
+  // Scanner States
+  const [scanInput, setScanInput] = useState('');
+  const [scannedItems, setScannedItems] = useState<number[]>([]); 
+  const [restockInput, setRestockInput] = useState('');
+  const [scanHistory, setScanHistory] = useState<Array<{ barcode: string, name: string, count: number, status: 'success' | 'error', time: string }>>([]);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
-      setInventory(mappedInventory);
+  // Forms
+  const [newItemData, setNewItemData] = useState({
+    DrugName: '', BarcodeID: '', Category: '', UnitPrice: '', QuantityInStock: '', MinStockLevel: '', ExpiryDate: ''
+  });
+  
+  const [reorderFormData, setReorderFormData] = useState({
+    quantity: '', supplier: '', urgency: 'medium', notes: ''
+  });
 
-      // Fetch pending prescriptions
-      const presRes = await fetch('http://localhost:3001/api/pharmacist/prescriptions/pending', { headers });
-      if (!presRes.ok) throw new Error("Failed to fetch prescriptions");
+  // =========================
+  // 2. EFFECTS
+  // =========================
 
-      const presData = await presRes.json();
-      setPendingPrescriptions(Array.isArray(presData) ? presData : []);
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) setUser(JSON.parse(storedUser));
+    else setUser({ id: 14, name: 'Dev Pharmacist', role: 'pharmacist', email: 'pharmacy@clinic.com' });
+  }, []);
 
-      // TODO: Add API calls for expiring meds and dispensing history when backend is ready
-      // For now, use mock data or empty arrays
-      setExpiringMeds([]);
-      setDispensingHistory([]);
+  useEffect(() => { 
+      fetchInventory(); 
+      if (activeTab === 'expiry') fetchExpiringDrugs();
+  }, [activeTab]);
 
-    } catch (error) {
-      console.error("Sync error:", error);
-      Swal.fire({ icon: 'error', title: 'Sync Error', text: 'Failed to sync data' });
-    } finally {
-      setIsLoading(false);
-    }
+  useEffect(() => { 
+    fetchPendingRx(); 
+    fetchDispensingHistory();
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    setCurrentPage(1);
+  }, [searchQuery]);
 
-  // BARCODE SCANNER FUNCTIONALITY (from old component)
-  const handleBarcodeScan = async () => {
-    if (!scannedCode.trim()) {
-      Swal.fire({ icon: 'warning', title: 'Missing Input', text: 'Please scan a barcode first.' });
-      return;
-    }
-
-    Swal.fire({
-      title: 'Processing...',
-      didOpen: () => Swal.showLoading()
-    });
-
-    setIsProcessing(true);
-    try {
-      const token = localStorage.getItem('token');
-      const config = { headers: { Authorization: `Bearer ${token}` } };
-
-      if (scanMode === 'dispense') {
-        const response = await axios.post('http://localhost:3001/api/scan', 
-          { barcode: scannedCode, mode: 'dispense' }, 
-          config
-        );
-
-        if (response.data.status === 'success') {
-          setInventory(prev => prev.map(item => 
-            item.name === response.data.drug 
-              ? { ...item, stock: response.data.remaining, status: response.data.remaining <= item.minStock ? 'low' : item.status }
-              : item
-          ));
-
-          Swal.fire({
-            icon: 'success',
-            title: 'Dispensed!',
-            html: `<span style="font-size: 1.1em"><b>${response.data.drug}</b></span><br/>Remaining: <b>${response.data.remaining}</b>`,
-            timer: 1500,
-            showConfirmButton: false
-          });
-        }
-      } else {
-        const response = await axios.post('http://localhost:3001/api/scan', 
-          { barcode: scannedCode, mode: 'check' }, 
-          config
-        );
-
-        if (response.data.status === 'success') {
-          Swal.close();
-          const drug = response.data.drug;
-          setRestockItem({
-            id: drug.id,
-            name: drug.name,
-            stock: drug.stock,
-            minStock: 10,
-            location: drug.location,
-            status: 'good'
-          });
-          setShowRestockDialog(true);
-        }
-      }
-    } catch (error: any) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: error.response?.data?.message || "Item not found or scan failed"
+  useEffect(() => {
+    if (selectedItem && showReorder) {
+      setReorderFormData({
+        quantity: (selectedItem.minStock * 2).toString(),
+        supplier: '',
+        urgency: selectedItem.status === 'critical' ? 'critical' : 'medium',
+        notes: ''
       });
-    } finally {
-      setIsProcessing(false);
-      setScannedCode('');
     }
+  }, [selectedItem, showReorder]);
+
+  // =========================
+  // 3. API FETCHING
+  // =========================
+
+  const fetchInventory = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/drugs');
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        const formattedData = data.map((drug: any) => {
+           const stock = Number(drug.QuantityInStock) || 0;
+           const minStock = Number(drug.MinStockLevel) || 10;
+           let status = 'good';
+           if (stock === 0) status = 'critical';
+           else if (stock <= minStock) status = 'low';
+           return {
+             id: drug.DrugID,
+             name: drug.DrugName,
+             stock: stock,
+             minStock: minStock,
+             status: status,
+             location: drug.Location || 'Pharmacy',
+             category: drug.Category
+           };
+        });
+        setInventoryItems(formattedData);
+      }
+    } catch (error) { console.error(error); } 
+    finally { setLoadingInventory(false); }
   };
 
-  const handleRestockConfirm = async () => {
-    if (!restockItem || !restockQty) return;
-    
-    Swal.fire({ title: 'Updating Stock...', didOpen: () => Swal.showLoading() });
-    
-    setIsProcessing(true);
+  const fetchPendingRx = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:3001/api/restock',
-        { drug_id: restockItem.id, quantity: parseInt(restockQty) },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data.status === 'success') {
-        setShowRestockDialog(false);
-        setRestockQty('');
-        fetchData();
-        
-        Swal.fire({
-          icon: 'success',
-          title: 'Stock Added!',
-          text: `Successfully added ${restockQty} units.`,
-          timer: 1500,
-          showConfirmButton: false
-        });
-      }
+      const response = await fetch('http://localhost:3001/api/pharmacist/pending-rx', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (Array.isArray(data)) setPendingRxList(data);
+      else setPendingRxList([]);
     } catch (error) {
-      Swal.fire({ icon: 'error', title: 'Failed', text: "Restock failed. Please try again." });
-    } finally {
-      setIsProcessing(false);
+      console.error("Error loading RX:", error);
+      setPendingRxList([]);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleBarcodeScan();
-    }
-  };
-
-  const handleConfirmDispense = async () => {
-    if (!selectedPrescription) return;
-    
-    Swal.fire({ title: 'Dispensing...', didOpen: () => Swal.showLoading() });
-    
-    setIsProcessing(true);
+  const fetchDispensingHistory = async () => {
     try {
-      const response = await fetch(
-        `http://localhost:3001/api/pharmacist/dispense/${selectedPrescription.ItemID}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:3001/api/pharmacist/dispensing-history', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (response.ok) {
-        setShowDispense(false);
-        fetchData();
-        
-        Swal.fire({
-          icon: 'success',
-          title: 'Order Completed',
-          text: 'Prescription has been dispensed.',
-          timer: 1500,
-          showConfirmButton: false
-        });
+        const data = await response.json();
+        if (Array.isArray(data)) setDispensingHistory(data);
       }
+    } catch (error) { console.error(error); }
+  };
+
+  const fetchExpiringDrugs = async () => {
+      try {
+          const token = localStorage.getItem('token');
+          const response = await fetch('http://localhost:3001/api/pharmacist/expiring', {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await response.json();
+          if (Array.isArray(data)) setExpiringItems(data);
+      } catch (error) { console.error(error); }
+  };
+
+  const toggleRow = async (drugId: number) => {
+    if (expandedRowId === drugId) {
+        setExpandedRowId(null);
+        return;
+    }
+    
+    setExpandedRowId(drugId);
+    setLoadingBatches(true);
+    setBatchDetails([]);
+
+    try {
+        const response = await fetch(`http://localhost:3001/api/drug/${drugId}/batches`);
+        if (response.ok) {
+            const data = await response.json();
+            setBatchDetails(data);
+        } else {
+            setBatchDetails([]); 
+        }
     } catch (error) {
-      Swal.fire({ icon: 'error', title: 'Connection Error', text: "Could not connect to database." });
+        console.error("Failed to fetch batches", error);
     } finally {
-      setIsProcessing(false);
+        setLoadingBatches(false);
     }
   };
 
-  const filteredInventory = inventory.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // =========================
+  // 4. HANDLERS
+  // =========================
 
-  const lowStockItems = inventory.filter(item => item.status === 'low' || item.status === 'critical');
+  const handleDisposeItem = async () => {
+      if (!selectedItem) return;
+      try {
+          const token = localStorage.getItem('token');
+          const response = await fetch('http://localhost:3001/api/pharmacist/dispose', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({
+                  drugId: selectedItem.id,
+                  batchId: selectedItem.batchId, // 👈 ADD THIS LINE
+                  quantity: selectedItem.stock, 
+                  reason: 'Expired'
+              })
+          });
+          
+          if (response.ok) {
+              alert(`✅ Successfully disposed ${selectedItem.stock} units of ${selectedItem.name}`);
+              setShowDisposeDialog(false);
+              fetchExpiringDrugs(); // Refresh the list
+              fetchInventory();     // Refresh the main count
+          } else {
+              alert("❌ Failed to dispose item");
+          }
+      } catch (error) { console.error(error); }
+  };
 
-  if (isLoading && inventory.length === 0) {
-    return <div className="h-screen w-full flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-purple-600 size-10" /></div>;
-  }
+  const handleDispenseScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const barcode = scanInput.trim();
+      if (!barcode || !selectedPrescriptionGroup) return;
 
+      const match = selectedPrescriptionGroup.items?.find((item: any) => {
+        const itemBarcode = String(item.barcode).trim();
+        const scanned = String(barcode).trim();
+        return itemBarcode === scanned && (item.quantity - (item.dispensedCount || 0)) > 0;
+      });
+
+      if (match) {
+        try {
+           const token = localStorage.getItem('token');
+           const response = await fetch('http://localhost:3001/api/pharmacist/scan-item', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ itemId: match.itemId, barcode: barcode })
+           });
+
+           if (response.ok) {
+               const updatedItems = selectedPrescriptionGroup.items.map((i: any) => {
+                   if (i.itemId === match.itemId) return { ...i, dispensedCount: (i.dispensedCount || 0) + 1 };
+                   return i;
+               });
+               setSelectedPrescriptionGroup({ ...selectedPrescriptionGroup, items: updatedItems });
+               setScanInput('');
+               fetchInventory();
+               fetchPendingRx();
+           } else {
+               const err = await response.json();
+               alert(`❌ Error: ${err.error}`);
+           }
+        } catch (err) { console.error(err); }
+      } else {
+          alert("⚠️ Invalid Barcode or Item already filled!");
+      }
+      setScanInput('');
+    }
+  };
+
+  const handleRegisterDrug = async () => {
+    if (!newItemData.DrugName || !newItemData.BarcodeID) return alert('⚠️ Name & Barcode required!');
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:3001/api/drug/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          ...newItemData,
+          UnitPrice: parseFloat(newItemData.UnitPrice) || 0,
+          QuantityInStock: parseInt(newItemData.QuantityInStock) || 0,
+          MinStockLevel: parseInt(newItemData.MinStockLevel) || 10,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        alert('✅ Added!');
+        setShowAddItem(false);
+        setNewItemData({ DrugName: '', BarcodeID: '', Category: '', UnitPrice: '', QuantityInStock: '', MinStockLevel: '', ExpiryDate: '' });
+        fetchInventory();
+      } else { alert('❌ ' + data.error); }
+    } catch (error) { console.error(error); } 
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleSubmitReorder = async () => {
+    setIsReordering(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:3001/api/admin/drug-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          drugId: selectedItem.id,
+          quantity: parseInt(reorderFormData.quantity),
+          urgency: reorderFormData.urgency,
+          supplier: reorderFormData.supplier,
+          reason: reorderFormData.notes,
+          requestedBy: user?.id || 14
+        }),
+      });
+      if (response.ok) {
+        alert("✅ Request sent!");
+        setShowReorder(false);
+      }
+    } catch (error) { console.error(error); } 
+    finally { setIsReordering(false); }
+  };
+
+  const handleRestockScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const barcode = restockInput.trim();
+      if (!barcode) return;
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:3001/api/drug/restock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ BarcodeID: barcode }),
+        });
+        const data = await response.json();
+        const timestamp = new Date().toLocaleTimeString();
+        
+        setScanHistory(prev => {
+           const existingItemIndex = prev.findIndex(item => item.barcode === barcode);
+           if (existingItemIndex !== -1) {
+               const updatedItem = {
+                   ...prev[existingItemIndex],
+                   count: prev[existingItemIndex].count + 1,
+                   time: timestamp,
+                   status: response.ok ? 'success' : 'error'
+               };
+               const newHistory = prev.filter((_, idx) => idx !== existingItemIndex);
+               return [updatedItem as any, ...newHistory];
+           } else {
+               const newItem = {
+                   barcode,
+                   name: response.ok ? data.drug?.DrugName : `Unknown (${barcode})`,
+                   count: 1,
+                   status: response.ok ? 'success' : 'error',
+                   time: timestamp
+               };
+               return [newItem, ...prev] as any;
+           }
+        });
+        if (response.ok) fetchInventory();
+      } catch (error) { console.error(error); }
+      setRestockInput('');
+    }
+  };
+
+  // =========================
+  // 5. HELPER DATA & PAGINATION
+  // =========================
+  
+  // Inventory Helper
+  const filteredInventory = inventoryItems.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const sortedInventory = [...filteredInventory].sort((a, b) => {
+    if (sortOption === 'name-asc') return a.name.localeCompare(b.name);
+    if (sortOption === 'stock-asc') return a.stock - b.stock;
+    return 0;
+  });
+  const totalPages = Math.ceil(sortedInventory.length / itemsPerPage);
+  const paginatedInventory = sortedInventory.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const lowStockItems = inventoryItems.filter(item => item.status === 'low' || item.status === 'critical');
+
+  // ⚡ Expiry Pagination Logic (NEW)
+  const totalExpiryPages = Math.ceil(expiringItems.length / expiryPerPage);
+  const paginatedExpiryItems = expiringItems.slice((expiryPage - 1) * expiryPerPage, expiryPage * expiryPerPage);
+
+  // ⚡ Dispensing History Pagination Logic (NEW)
+  const totalHistoryPages = Math.ceil(dispensingHistory.length / historyPerPage);
+  const paginatedHistory = dispensingHistory.slice((historyPage - 1) * historyPerPage, historyPage * historyPerPage);
+  
+  const pharmacistProfile = {
+    name: user?.name || 'Loading...',
+    id: user?.id || 0,
+    role: 'Pharmacist',
+    phone: '+1 (555) 678-9012', 
+    department: 'Pharmacy', 
+    joinDate: 'March 2019',
+    specialization: 'Clinical Pharmacy',
+    certifications: ['Licensed Pharmacist', 'Immunization Certified'],
+    initials: user?.name ? user.name.substring(0, 2).toUpperCase() : 'PH',
+    email: user?.email || 'pharmacy@clinic.com'
+  };
+
+  const isPrescriptionComplete = selectedPrescriptionGroup?.items?.every((i:any) => (i.dispensedCount || 0) >= i.quantity);
+  const criticalExpiry = expiringItems.filter(i => i.daysLeft <= 30);
+  const warningExpiry = expiringItems.filter(i => i.daysLeft > 30 && i.daysLeft <= 90);
+
+  // =========================
+  // 6. RENDER
+  // =========================
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header - Updated with old component's header style */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-50">
-        <div className="flex items-center justify-between gap-4">
+      <header className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center">
-              <Pill className="size-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl text-gray-900">Clinic CMS</h1>
-              <p className="text-sm text-gray-500">Pharmacy Portal</p>
-            </div>
+            <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center"><Pill className="size-6 text-white" /></div>
+            <div><h1 className="text-xl text-gray-900">Pharmacist Portal</h1><p className="text-sm text-gray-500">Inventory & Medication Management</p></div>
           </div>
           <div className="flex items-center gap-4">
-            <NotificationPanel role="pharmacist" />
-            <div className="flex items-center gap-3">
-              <Avatar 
-                className="cursor-pointer border-2 border-purple-50 hover:border-purple-200 transition-colors"
-                onClick={() => setShowProfile(true)}
-              >
-                <AvatarFallback className="bg-purple-600 text-white">
-                  {user?.name?.charAt(0) || <UserIcon className="size-4" />}
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden sm:block">
-                <p className="text-sm text-gray-900">{user?.name || 'Pharmacist'}</p>
-                <p className="text-xs text-gray-500">Authorized Pharmacist</p>
-              </div>
-            </div>
-            <Button variant="ghost" size="icon" onClick={onSignOut} className="text-gray-400 hover:text-red-600">
-              <LogOut className="size-5" />
-            </Button>
+             
+             <Avatar className="cursor-pointer" onClick={() => setShowProfile(true)}><AvatarFallback className="bg-purple-600 text-white">{pharmacistProfile.initials}</AvatarFallback></Avatar>
+             <Button variant="ghost" onClick={onSignOut}><LogOut className="size-5" /></Button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 p-6 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* BARCODE SCANNER SECTION - From old component */}
-          <Card className="border-none shadow-sm">
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-xl font-black text-gray-900">Quick Scan Inventory</h2>
-                  <p className="text-gray-500 text-sm flex items-center gap-2">
-                    <Barcode className="size-4" />
-                    <span className="font-semibold">IoT Scanner</span>
-                    <span className="text-emerald-500 font-bold">• Ready to scan inventory</span>
-                  </p>
-                </div>
-                
-                <div className="h-px bg-gray-200"></div>
-                
-                <div>
-                  <div className="flex gap-2 mb-3">
-                    <Button
-                      variant={scanMode === 'dispense' ? 'default' : 'outline'}
-                      className={`flex-1 h-10 ${scanMode === 'dispense' ? 'bg-purple-600 hover:bg-purple-700' : 'border-gray-300 text-gray-700'}`}
-                      onClick={() => setScanMode('dispense')}
-                    >
-                      <ArrowDownCircle className="size-4 mr-2" />
-                      Dispense Mode
-                    </Button>
-                    <Button
-                      variant={scanMode === 'restock' ? 'default' : 'outline'}
-                      className={`flex-1 h-10 ${scanMode === 'restock' ? 'bg-purple-600 hover:bg-purple-700' : 'border-gray-300 text-gray-700'}`}
-                      onClick={() => setScanMode('restock')}
-                    >
-                      <PackagePlus className="size-4 mr-2" />
-                      Restock Mode
-                    </Button>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={scanMode === 'dispense' ? "Scan barcode to dispense medication..." : "Scan barcode to restock medication..."}
-                      className="h-12 text-lg font-medium pl-4 flex-1"
-                      value={scannedCode}
-                      onChange={(e) => setScannedCode(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      autoFocus
-                    />
-                    <Button 
-                      onClick={handleBarcodeScan} 
-                      className="h-12 px-6 bg-purple-600 hover:bg-purple-700"
-                      disabled={isProcessing}
-                    >
-                      {isProcessing ? 'Scanning...' : 'Scan'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Tab Navigation - From new UI */}
           <div className="flex gap-2 border-b">
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'inventory'
-                  ? 'border-purple-600 text-purple-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Package className="size-4 inline mr-2" />
-              Inventory
-            </button>
-            <button
-              onClick={() => setActiveTab('prescriptions')}
-              className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'prescriptions'
-                  ? 'border-purple-600 text-purple-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Pill className="size-4 inline mr-2" />
-              Prescriptions
-            </button>
-            <button
-              onClick={() => setActiveTab('expiry')}
-              className={`px-4 py-2 border-b-2 transition-colors ${
-                activeTab === 'expiry'
-                  ? 'border-purple-600 text-purple-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <AlertTriangle className="size-4 inline mr-2" />
-              Expiry Tracking
-            </button>
+            {['inventory', 'prescriptions', 'expiry', 'addStock'].map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-4 py-2 border-b-2 capitalize flex items-center gap-2 ${activeTab === tab ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-600'}`}>
+                    {tab === 'inventory' && <Package className="size-4" />}
+                    {tab === 'prescriptions' && <Pill className="size-4" />}
+                    {tab === 'expiry' && <AlertTriangle className="size-4" />}
+                    {tab === 'addStock' && <PackagePlus className="size-4" />}
+                    {tab === 'addStock' ? '+ Add Stock' : tab}
+                </button>
+            ))}
           </div>
 
+          {/* TAB 1: INVENTORY (WITH BATCH INSPECTOR) */}
           {activeTab === 'inventory' && (
-            <div className="grid lg:grid-cols-3 gap-6">
-              {/* Inventory Table */}
-              <Card className="lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Card className="lg:col-span-2 h-fit">
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Medication Inventory</CardTitle>
-                      <CardDescription>Current stock levels</CardDescription>
-                    </div>
+                  <div className="flex justify-between">
+                    <div><CardTitle>Medication Inventory</CardTitle><CardDescription>Click a row to see batch details</CardDescription></div>
                     <div className="flex gap-2">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                        <Input
-                          placeholder="Search medication..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pl-10 w-64"
-                        />
-                      </div>
-                      <Button size="icon" onClick={fetchData} variant="outline" className="h-10 w-10">
-                        <RefreshCcw className={`size-4 ${isLoading ? 'animate-spin' : ''}`} />
-                      </Button>
+                        <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" /><Input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9 w-48" /></div>
+                        <Select value={sortOption} onValueChange={setSortOption}><SelectTrigger className="w-[140px]"><ArrowUpDown className="mr-2 h-4 w-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="name-asc">Name A-Z</SelectItem><SelectItem value="stock-asc">Stock Low-High</SelectItem></SelectContent></Select>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-lg border">
                     <Table>
-                      <TableHeader className="bg-gray-50/80">
-                        <TableRow>
-                          <TableHead className="font-bold text-gray-700">Drug Name</TableHead>
-                          <TableHead className="font-bold text-gray-700">Location</TableHead>
-                          <TableHead className="font-bold text-gray-700">Stock</TableHead>
-                          <TableHead className="font-bold text-gray-700">Status</TableHead>
-                          <TableHead></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredInventory.map((item) => (
-                          <TableRow key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                            <TableCell className="font-bold text-gray-900">{item.name}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="font-mono text-xs">{item.location}</Badge>
-                            </TableCell>
-                            <TableCell className="font-medium text-gray-600">
-                              {item.stock} Units
-                              <p className="text-xs text-gray-500">Min: {item.minStock}</p>
-                            </TableCell>
-                            <TableCell>
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                item.status === 'good' ? 'bg-emerald-100 text-emerald-700' : 
-                                item.status === 'low' ? 'bg-amber-100 text-amber-700' : 
-                                'bg-rose-100 text-rose-700'
-                              }`}>
-                                {item.status}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <Button variant="ghost" size="sm" onClick={() => {
-                                setSelectedItem(item);
-                                setShowReorder(true);
-                              }}>
-                                Update
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
+                        <TableHeader><TableRow><TableHead className="w-8"></TableHead><TableHead>Medication</TableHead><TableHead>Location</TableHead><TableHead>Stock</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
+                        <TableBody>
+                          {loadingInventory ? (
+                             <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="animate-spin size-6 mx-auto" /></TableCell></TableRow>
+                          ) : paginatedInventory.map(item => (
+                              <React.Fragment key={item.id}>
+                                  <TableRow 
+                                    className={`cursor-pointer transition-colors ${expandedRowId === item.id ? 'bg-purple-50 hover:bg-purple-50 border-b-0' : 'hover:bg-gray-50'}`}
+                                    onClick={() => toggleRow(item.id)}
+                                  >
+                                      <TableCell>{expandedRowId === item.id ? <ChevronDown className="size-4 text-purple-600" /> : <ChevronRight className="size-4 text-gray-400" />}</TableCell>
+                                      <TableCell><p className="font-medium text-gray-900">{item.name}</p><p className="text-xs text-gray-500">{item.category}</p></TableCell>
+                                      <TableCell><Badge variant="outline">{item.location}</Badge></TableCell>
+                                      <TableCell><span className="font-mono font-medium">{item.stock}</span></TableCell>
+                                      <TableCell><Badge className={item.status === 'good' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>{item.status}</Badge></TableCell>
+                                      <TableCell><Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setShowEditItem(true); }}>Edit</Button></TableCell>
+                                  </TableRow>
+                                  {expandedRowId === item.id && (
+                                      <TableRow className="bg-purple-50 hover:bg-purple-50">
+                                          <TableCell colSpan={6} className="p-0">
+                                              <div className="p-4 pl-12 border-b border-purple-100 animate-in slide-in-from-top-2 duration-200">
+                                                  <h4 className="text-xs font-semibold uppercase tracking-wider text-purple-800 mb-3 flex items-center gap-2"><Package className="size-3" /> Batch Breakdown</h4>
+                                                  {loadingBatches ? (
+                                                      <div className="flex items-center gap-2 text-sm text-purple-600"><Loader2 className="size-4 animate-spin" /> Loading batches...</div>
+                                                  ) : batchDetails.length > 0 ? (
+                                                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                          {batchDetails.map((batch: any, idx: number) => (
+                                                              <div key={idx} className="bg-white border border-purple-200 rounded-md p-3 shadow-sm">
+                                                                  <div className="flex justify-between items-start mb-2"><Badge variant="outline" className="font-mono text-[10px] bg-gray-50">BATCH #{batch.BatchID}</Badge><span className="font-bold text-sm text-purple-700">x{batch.Quantity}</span></div>
+                                                                  <div className="space-y-1 text-xs text-gray-600"><div className="flex items-center gap-2"><Calendar className="size-3 text-gray-400" /> Exp: {new Date(batch.ExpiryDate).toLocaleDateString()}</div><div className="flex items-center gap-2"><Hash className="size-3 text-gray-400" /> {batch.BarcodeID || 'No Barcode'}</div></div>
+                                                              </div>
+                                                          ))}
+                                                      </div>
+                                                  ) : (<p className="text-sm text-gray-500 italic">No specific batches found. Stock is untracked.</p>)}
+                                              </div>
+                                          </TableCell>
+                                      </TableRow>
+                                  )}
+                              </React.Fragment>
+                          ))}
+                        </TableBody>
                     </Table>
+                  </div>
+                  <div className="flex justify-between mt-4">
+                      <Button size="sm" variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}><ChevronLeft className="size-4 mr-2" /> Prev</Button>
+                      <span className="text-sm text-gray-500 pt-2">Page {currentPage} of {totalPages}</span>
+                      <Button size="sm" variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next <ChevronRight className="size-4 ml-2" /></Button>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Pending Prescriptions Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Pending Prescriptions</CardTitle>
-                  <CardDescription>Prescriptions to fulfill</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {pendingPrescriptions.length === 0 ? (
-                      <div className="p-8 text-center border-2 border-dashed border-gray-200 rounded-lg">
-                        <CheckCircle className="size-12 text-gray-200 mx-auto mb-3" />
-                        <h3 className="text-gray-900 font-bold">No Pending Prescriptions</h3>
-                        <p className="text-gray-400 text-sm">Waiting for doctors to submit new orders.</p>
-                      </div>
-                    ) : (
-                      pendingPrescriptions.map((prescription) => (
-                        <div
-                          key={prescription.id}
-                          className="p-3 border border-gray-200 rounded-lg hover:border-purple-200 transition-colors"
-                        >
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <p className="text-sm text-gray-900 font-medium">{prescription.patient}</p>
-                              <p className="text-xs text-gray-500">Dr. {prescription.doctor}</p>
+              {/* Pending RX Card */}
+              <Card className="lg:col-span-1 h-fit">
+                <CardHeader className="flex flex-row justify-between"><div><CardTitle>Pending RX</CardTitle><CardDescription>Queue to fulfill</CardDescription></div><Button variant="ghost" size="sm" onClick={fetchPendingRx}><RefreshCw className="size-4" /></Button></CardHeader>
+                <CardContent className="space-y-4">
+                    {pendingRxList.map((group: any) => (
+                        <div key={group.prescriptionId} className="p-4 border rounded-lg bg-white shadow-sm">
+                            <div className="flex justify-between mb-2"><span className="font-bold">{group.patient}</span><Badge>{group.items?.length} Items</Badge></div>
+                            <div className="mb-4 space-y-2">
+                                {group.items?.map((item: any) => (
+                                    <div key={item.itemId} className="flex justify-between text-sm"><span className="text-gray-700 font-medium">{item.medication}</span><span className="text-gray-500">x{item.quantity}</span></div>
+                                ))}
                             </div>
-                            <Badge className="bg-orange-50 text-orange-600 border-none text-[10px]">
-                              RX PENDING
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-gray-700 mb-1">{prescription.medication}</p>
-                          <p className="text-xs text-gray-500 mb-3">Qty: {prescription.quantity} units</p>
-                          <Button
-                            size="sm"
-                            className="w-full bg-gray-900 hover:bg-purple-600 text-xs font-medium"
-                            onClick={() => {
-                              setSelectedPrescription(prescription);
-                              setShowDispense(true);
-                            }}
-                          >
-                            Process Dispensing
-                          </Button>
+                            <Button className="w-full bg-purple-600" onClick={() => { setSelectedPrescriptionGroup(group); setScannedItems([]); setShowDispenseScanner(true); setTimeout(() => scanInputRef.current?.focus(), 100); }}>Prepare & Scan</Button>
                         </div>
-                      ))
-                    )}
-                  </div>
+                    ))}
+                    {pendingRxList.length === 0 && <p className="text-gray-500 text-center">No pending prescriptions</p>}
                 </CardContent>
               </Card>
             </div>
           )}
 
+          {/* TAB 2: PRESCRIPTIONS (PAGINATED) */}
           {activeTab === 'prescriptions' && (
             <Card>
-              <CardHeader>
-                <CardTitle>Dispensing History</CardTitle>
-                <CardDescription>Recently dispensed medications</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {dispensingHistory.length === 0 ? (
-                  <div className="p-12 text-center">
-                    <p className="text-gray-500">No dispensing history available.</p>
-                    <p className="text-sm text-gray-400 mt-1">History will appear here after dispensing medications.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {dispensingHistory.map((record, index) => (
-                      <div key={index} className="p-4 border border-gray-200 rounded-lg">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-1">
-                              <p className="text-sm text-gray-900">{record.patient}</p>
-                              <Badge variant="outline" className="text-xs">{record.date}</Badge>
+                <CardHeader><CardTitle>Dispensing History</CardTitle></CardHeader>
+                <CardContent>
+                    <div className="space-y-2">
+                        {paginatedHistory.map((rec, i) => (
+                            <div key={i} className="flex justify-between p-3 border rounded hover:bg-gray-50 transition-colors">
+                                <p className="font-medium text-gray-900">{rec.patient} <span className="font-normal text-gray-500">-</span> {rec.medication} <span className="font-bold text-purple-700">(x{rec.quantity})</span></p>
+                                <Badge variant="outline">{new Date(rec.date).toLocaleDateString()}</Badge>
                             </div>
-                            <p className="text-sm text-gray-700">{record.medication}</p>
-                            <p className="text-xs text-gray-500 mt-1">Quantity: {record.quantity} units</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => {
-                              setSelectedReceipt(record);
-                              setShowReceipt(true);
-                            }}>View Receipt</Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
+                        ))}
+                        {paginatedHistory.length === 0 && <p className="text-gray-500 text-center py-8">No history available.</p>}
+                    </div>
+                    {/* History Pagination Controls */}
+                    <div className="flex justify-between mt-6 pt-4 border-t">
+                        <Button size="sm" variant="outline" onClick={() => setHistoryPage(p => Math.max(1, p - 1))} disabled={historyPage === 1}><ChevronLeft className="size-4 mr-2" /> Prev</Button>
+                        <span className="text-sm text-gray-500 pt-2">Page {historyPage} of {totalHistoryPages || 1}</span>
+                        <Button size="sm" variant="outline" onClick={() => setHistoryPage(p => Math.min(totalHistoryPages, p + 1))} disabled={historyPage === totalHistoryPages || totalHistoryPages === 0}>Next <ChevronRight className="size-4 ml-2" /></Button>
+                    </div>
+                </CardContent>
             </Card>
           )}
 
+          {/* TAB 3: EXPIRY TRACKING (PAGINATED) */}
           {activeTab === 'expiry' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="size-5 text-orange-500" />
-                  Expiring Medications
-                </CardTitle>
-                <CardDescription>Medications expiring in the next 60 days</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {expiringMeds.length === 0 ? (
-                  <div className="p-12 text-center">
-                    <AlertTriangle className="size-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500">No expiring medications found.</p>
-                    <p className="text-sm text-gray-400 mt-1">Expiring medications will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {expiringMeds.map((med, index) => (
-                      <div
-                        key={index}
-                        className={`p-4 border-2 rounded-lg ${
-                          med.daysLeft <= 14
-                            ? 'border-red-200 bg-red-50'
-                            : med.daysLeft <= 30
-                            ? 'border-orange-200 bg-orange-50'
-                            : 'border-yellow-200 bg-yellow-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <p className="text-sm text-gray-900 mb-1">{med.name}</p>
-                            <div className="flex items-center gap-4 text-xs text-gray-600">
-                              <span>Stock: {med.stock}</span>
-                              <span>Location: {med.location}</span>
-                            </div>
-                          </div>
-                          <Badge
-                            variant="destructive"
-                            className={
-                              med.daysLeft <= 14
-                                ? 'bg-red-600'
-                                : med.daysLeft <= 30
-                                ? 'bg-orange-600'
-                                : 'bg-yellow-600'
-                            }
-                          >
-                            {med.daysLeft} days
-                          </Badge>
+            <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="bg-red-50 border-red-100">
+                        <CardHeader className="pb-2"><CardTitle className="text-red-600 text-lg flex items-center gap-2"><AlertOctagon className="size-5" /> Critical (30 Days)</CardTitle></CardHeader>
+                        <CardContent><p className="text-3xl font-bold text-red-700">{criticalExpiry.length} Items</p><p className="text-xs text-red-500">Action: Remove from shelf immediately</p></CardContent>
+                    </Card>
+                    <Card className="bg-orange-50 border-orange-100">
+                        <CardHeader className="pb-2"><CardTitle className="text-orange-600 text-lg flex items-center gap-2"><AlertTriangle className="size-5" /> Warning (90 Days)</CardTitle></CardHeader>
+                        <CardContent><p className="text-3xl font-bold text-orange-700">{warningExpiry.length} Items</p><p className="text-xs text-orange-500">Action: Plan for disposal or priority use</p></CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="pb-2"><CardTitle className="text-gray-600 text-lg flex items-center gap-2"><CheckCircle2 className="size-5" /> Good Standing</CardTitle></CardHeader>
+                        <CardContent><p className="text-3xl font-bold text-gray-700">{inventoryItems.length - expiringItems.length} Items</p><p className="text-xs text-gray-500">Safe for dispensing</p></CardContent>
+                    </Card>
+                </div>
+
+                <Card>
+                    <CardHeader><CardTitle>Expiring Inventory</CardTitle><CardDescription>Batches expiring within the next 3 months</CardDescription></CardHeader>
+                    <CardContent>
+                        <Table>
+                            <TableHeader><TableRow><TableHead>Medication</TableHead><TableHead>Stock</TableHead><TableHead>Expiry Date</TableHead><TableHead>Days Left</TableHead><TableHead>Action</TableHead></TableRow></TableHeader>
+                            <TableBody>
+                                {paginatedExpiryItems.map((item: any) => (
+                                    <TableRow key={item.id}>
+                                        <TableCell className="font-medium">{item.name}</TableCell>
+                                        <TableCell>{item.stock}</TableCell>
+                                        <TableCell>{new Date(item.expiryDate).toLocaleDateString()}</TableCell>
+                                        <TableCell><Badge variant={item.daysLeft <= 30 ? "destructive" : "default"} className={item.daysLeft > 30 ? "bg-orange-500" : ""}>{item.daysLeft <= 0 ? "EXPIRED" : `${item.daysLeft} Days`}</Badge></TableCell>
+                                        <TableCell><Button variant="destructive" size="sm" onClick={() => { setSelectedItem(item); setShowDisposeDialog(true); }}><Trash2 className="size-4 mr-2" /> Dispose</Button></TableCell>
+                                    </TableRow>
+                                ))}
+                                {paginatedExpiryItems.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-gray-500">No items expiring soon. Good job!</TableCell></TableRow>}
+                            </TableBody>
+                        </Table>
+                        {/* Expiry Pagination Controls */}
+                        <div className="flex justify-between mt-4">
+                            <Button size="sm" variant="outline" onClick={() => setExpiryPage(p => Math.max(1, p - 1))} disabled={expiryPage === 1}><ChevronLeft className="size-4 mr-2" /> Prev</Button>
+                            <span className="text-sm text-gray-500 pt-2">Page {expiryPage} of {totalExpiryPages || 1}</span>
+                            <Button size="sm" variant="outline" onClick={() => setExpiryPage(p => Math.min(totalExpiryPages, p + 1))} disabled={expiryPage === totalExpiryPages || totalExpiryPages === 0}>Next <ChevronRight className="size-4 ml-2" /></Button>
                         </div>
-                        <p className="text-xs text-gray-600 mb-3">Expires: {med.expiryDate}</p>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">Mark for Return</Button>
-                          <Button size="sm" variant="outline">Discount Sale</Button>
-                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+          )}
+
+          {/* TAB 4: ADD STOCK */}
+          {activeTab === 'addStock' && (
+            <div className="max-w-6xl mx-auto space-y-8 pt-8">
+              <div className="grid md:grid-cols-2 gap-8">
+                <Card className="hover:border-purple-400 cursor-pointer transition-all hover:shadow-lg py-8" onClick={() => setShowAddItem(true)}>
+                  <CardHeader className="text-center">
+                    <div className="mx-auto bg-purple-100 p-4 rounded-full mb-6 w-20 h-20 flex items-center justify-center"><Plus className="size-10 text-purple-600" /></div>
+                    <CardTitle className="text-2xl">Register New Drug</CardTitle>
+                    <CardDescription className="text-md mt-2">Add a new item to the database</CardDescription>
+                  </CardHeader>
+                </Card>
+                <Card className="hover:border-blue-400 cursor-pointer transition-all hover:shadow-lg py-8" onClick={() => setShowRestockMode(true)}>
+                  <CardHeader className="text-center">
+                    <div className="mx-auto bg-blue-100 p-4 rounded-full mb-6 w-20 h-20 flex items-center justify-center"><PackagePlus className="size-10 text-blue-600" /></div>
+                    <CardTitle className="text-2xl">Restock Scanner</CardTitle>
+                    <CardDescription className="text-md mt-2">Scan barcodes to add +1 stock</CardDescription>
+                  </CardHeader>
+                </Card>
+              </div>
+              <div className="mt-24"> 
+                <Card>
+                  <CardHeader><CardTitle className="text-sm font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2"><History className="size-4" /> Recent Restock Activity</CardTitle></CardHeader>
+                  <CardContent>
+                    {scanHistory.length > 0 ? (
+                      <div className="space-y-2">
+                        {scanHistory.map((log, i) => (
+                           <div key={i} className="flex justify-between items-center p-3 border-b last:border-0 bg-white rounded mb-1 shadow-sm">
+                              <span className="font-medium text-gray-700">{log.name}</span>
+                              {log.status === 'success' ? <Badge className="bg-green-600 hover:bg-green-700">+{log.count}</Badge> : <Badge variant="destructive">Failed</Badge>}
+                           </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    ) : (
+                      <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border-2 border-dashed"><PackagePlus className="size-10 mx-auto mb-2 opacity-20" /><p>No recent restock activity in this session.</p></div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           )}
 
           {/* Low Stock Alerts */}
           {lowStockItems.length > 0 && activeTab === 'inventory' && (
-            <Card className="border-orange-200 bg-orange-50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-orange-900">
-                  <AlertTriangle className="size-5" />
-                  Low Stock Alerts
-                </CardTitle>
-                <CardDescription className="text-orange-700">
-                  Items requiring restocking
-                </CardDescription>
-              </CardHeader>
+            <Card className="border-orange-200 bg-orange-50 mt-6">
+              <CardHeader><CardTitle className="flex items-center gap-2 text-orange-900"><AlertTriangle className="size-5" /> Low Stock Alerts</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {lowStockItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-3 bg-white border border-orange-200 rounded-lg"
-                    >
-                      <p className="text-sm text-gray-900 mb-1">{item.name}</p>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Stock: {item.stock} / Min: {item.minStock}
-                      </p>
-                      <Button size="sm" variant="outline" className="w-full" onClick={() => {
-                        setSelectedItem(item);
-                        setShowReorder(true);
-                      }}>
-                        Reorder
-                      </Button>
+                    <div key={item.id} className="p-3 bg-white border border-orange-200 rounded-lg">
+                      <p className="text-sm text-gray-900 font-bold">{item.name}</p>
+                      <p className="text-xs text-gray-500 mb-2">Stock: {item.stock} / Min: {item.minStock}</p>
+                      <Button size="sm" variant="outline" className="w-full" onClick={() => { setSelectedItem(item); setShowReorder(true); }}>Reorder</Button>
                     </div>
                   ))}
                 </div>
@@ -694,265 +676,150 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
         </div>
       </main>
 
-      {/* Profile Modal */}
-      <ProfileModal
-        open={showProfile}
-        onOpenChange={setShowProfile}
-        profile={{
-          name: user?.name || 'Authorized User',
-          role: user?.role || 'Pharmacist',
-          email: user?.email || 'pharmacy@clinic.com',
-          department: 'Pharmacy',
-          phone: '+1 (555) 000-0000',
-          initials: user?.name?.charAt(0) || 'P',
-          joinDate: '2025',
-          specialization: 'Clinical Pharmacy',
-          certifications: ['Licensed Pharmacist']
-        }}
-      />
-
-      {/* EXISTING DIALOGS FROM OLD COMPONENT */}
-      <Dialog open={showDispense} onOpenChange={setShowDispense}>
-        <DialogContent className="sm:max-w-[420px] border-none shadow-2xl">
-          <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-2xl font-black text-gray-900">Confirm Order</DialogTitle>
-            <DialogDescription className="text-gray-500">Verify medication against the physical supply.</DialogDescription>
-          </DialogHeader>
-          
-          {selectedPrescription && (
-            <div className="space-y-6 py-4">
-              <div className="bg-gray-50 p-5 rounded-2xl space-y-4 border border-gray-100 text-sm">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400 font-bold uppercase text-[10px]">Patient</span> 
-                  <span className="font-bold text-gray-900">{selectedPrescription.patient}</span>
-                </div>
-                <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                  <span className="text-gray-400 font-bold uppercase text-[10px]">Medication</span> 
-                  <span className="font-bold text-gray-900">{selectedPrescription.medication}</span>
-                </div>
-                <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                  <span className="text-gray-400 font-bold uppercase text-[10px]">Quantity</span> 
-                  <span className="font-bold text-purple-600 text-lg">{selectedPrescription.quantity} Units</span>
-                </div>
-                <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                  <span className="text-gray-400 font-bold uppercase text-[10px]">Prescribed by</span> 
-                  <span className="font-bold text-gray-900">Dr. {selectedPrescription.doctor}</span>
-                </div>
+      {/* === MODALS === */}
+      
+      {/* 1. DISPOSE DIALOG */}
+      <Dialog open={showDisposeDialog} onOpenChange={setShowDisposeDialog}>
+          <DialogContent>
+              <DialogHeader>
+                  <DialogTitle className="text-red-600 flex items-center gap-2"><Trash2 /> Confirm Disposal</DialogTitle>
+                  <DialogDescription>
+                      You are about to dispose of <strong>{selectedItem?.stock} units</strong> of <strong>{selectedItem?.name}</strong>.
+                      <br /><br />
+                      This action is irreversible and will remove the items from inventory.
+                  </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end gap-2 mt-4">
+                  <Button variant="outline" onClick={() => setShowDisposeDialog(false)}>Cancel</Button>
+                  <Button variant="destructive" onClick={handleDisposeItem}>Confirm Disposal</Button>
               </div>
+          </DialogContent>
+      </Dialog>
 
-              <div className="space-y-2">
-                <Label htmlFor="batch">Batch Number (Optional)</Label>
-                <Input id="batch" placeholder="Enter batch number" />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="dispense-notes">Dispensing Notes (Optional)</Label>
-                <Textarea
-                  id="dispense-notes"
-                  placeholder="Special instructions for patient..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="flex gap-4">
-                <Button 
-                  className="flex-1 bg-purple-600 hover:bg-purple-700 h-12 font-bold shadow-lg shadow-purple-100" 
-                  onClick={handleConfirmDispense} 
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? "Updating Database..." : "Confirm Dispensed"}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="flex-1 h-12 font-bold text-gray-500 border-gray-200" 
-                  onClick={() => setShowDispense(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
+      {/* 2. DISPENSE SCANNER */}
+      <Dialog open={showDispenseScanner} onOpenChange={setShowDispenseScanner}>
+        <DialogContent className="max-w-4xl">
+            <DialogHeader>
+                <DialogTitle className="flex justify-between items-center text-xl">
+                    <span>Dispensing for {selectedPrescriptionGroup?.patient}</span>
+                    {isPrescriptionComplete && <Badge className="bg-green-100 text-green-800 border-green-200 px-3 py-1 mr-8">READY TO FINISH</Badge>}
+                </DialogTitle>
+                <DialogDescription>Scan medication barcodes to verify and deduct stock.</DialogDescription>
+            </DialogHeader>
+            <div className="grid md:grid-cols-2 gap-8 py-6">
+                <div className="flex flex-col gap-4">
+                    <div className={`flex flex-col items-center justify-center p-8 rounded-xl border-2 border-dashed transition-colors ${isPrescriptionComplete ? 'bg-green-50 border-green-300' : 'bg-gray-100 border-gray-300'}`}>
+                        <ScanLine className={`size-16 mb-4 ${isPrescriptionComplete ? 'text-green-600' : 'text-gray-400 animate-pulse'}`} />
+                        {!isPrescriptionComplete ? (
+                            <div className="w-full max-w-xs text-center"><Input ref={scanInputRef} value={scanInput} onChange={(e) => setScanInput(e.target.value)} onKeyDown={handleDispenseScan} placeholder="Click here & Scan Barcode" className="text-center font-mono text-lg h-12 border-2 border-blue-200 focus:border-blue-500" autoFocus /><p className="text-xs text-gray-500 mt-3">Ensure cursor is in the box to scan</p></div>
+                        ) : (
+                            <div className="text-center"><h3 className="text-2xl font-bold text-green-700 mb-2">All Items Scanned!</h3><p className="text-green-600">Stock has been deducted from inventory.</p></div>
+                        )}
+                    </div>
+                </div>
+                <div className="border rounded-xl overflow-hidden shadow-sm">
+                    <div className="bg-gray-50 px-4 py-3 border-b text-sm font-semibold text-gray-600">Prescription Items</div>
+                    <div className="divide-y max-h-[350px] overflow-y-auto">
+                        {selectedPrescriptionGroup?.items?.map((item: any) => {
+                            const dispensed = item.dispensedCount || 0;
+                            const total = item.quantity;
+                            const remaining = total - dispensed;
+                            const isItemComplete = remaining <= 0;
+                            return (
+                                <div key={item.itemId} className={`p-4 flex items-center justify-between transition-colors ${isItemComplete ? 'bg-green-50' : 'bg-white'}`}>
+                                    <div className="flex items-center gap-4">
+                                        {isItemComplete ? <div className="bg-green-100 p-2 rounded-full"><CheckCircle2 className="size-6 text-green-600" /></div> : <div className="size-10 rounded-full border-2 border-purple-200 bg-purple-50 flex items-center justify-center text-purple-700 font-bold">{remaining}</div>}
+                                        <div><p className={`font-bold ${isItemComplete ? 'text-green-800' : 'text-gray-800'}`}>{item.medication}</p><p className="text-xs text-gray-500">{isItemComplete ? "Completed" : `Need to scan ${remaining} more`}</p></div>
+                                    </div>
+                                    <div className="text-right text-xs text-gray-400">{dispensed} / {total} scanned</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
-          )}
+            <div className="flex justify-end gap-3 pt-2">
+                <Button variant="outline" onClick={() => setShowDispenseScanner(false)}>{isPrescriptionComplete ? "Close" : "Cancel"}</Button>
+                {isPrescriptionComplete && <Button className="bg-green-600 hover:bg-green-700 px-6" onClick={() => { setShowDispenseScanner(false); fetchPendingRx(); fetchDispensingHistory(); }}>Finish</Button>}
+            </div>
         </DialogContent>
       </Dialog>
 
-      {/* --- ADDED RESTOCK DIALOG (from old component) --- */}
-      <Dialog open={showRestockDialog} onOpenChange={setShowRestockDialog}>
-        <DialogContent className="sm:max-w-[420px] border-none shadow-2xl">
-          <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-2xl font-black text-gray-900">Update Inventory</DialogTitle>
-            <DialogDescription className="text-gray-500">Restock item from scanner input.</DialogDescription>
-          </DialogHeader>
-          
-          {restockItem && (
-            <div className="space-y-6 py-4">
-              <div className="bg-gray-50 p-5 rounded-2xl space-y-4 border border-gray-100 text-sm">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400 font-bold uppercase text-[10px]">Item</span> 
-                  <span className="font-bold text-gray-900">{restockItem.name}</span>
-                </div>
-                <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                  <span className="text-gray-400 font-bold uppercase text-[10px]">Current Stock</span> 
-                  <span className="font-bold text-gray-900">{restockItem.stock} Units</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="restockQty" className="text-xs font-bold uppercase text-gray-500">Quantity to Add</Label>
-                <Input
-                  id="restockQty"
-                  type="number"
-                  placeholder="Enter quantity"
-                  value={restockQty}
-                  onChange={(e) => setRestockQty(e.target.value)}
-                  className="h-12 font-bold text-lg"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex gap-4">
-                <Button 
-                  className="flex-1 bg-purple-600 hover:bg-purple-700 h-12 font-bold shadow-lg shadow-purple-100" 
-                  onClick={handleRestockConfirm} 
-                  disabled={isProcessing || !restockQty}
-                >
-                  {isProcessing ? "Updating..." : "Add Stock"}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="flex-1 h-12 font-bold text-gray-500 border-gray-200" 
-                  onClick={() => setShowRestockDialog(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
+      {/* 3. ADD ITEM DIALOG (FIXED WITH MIN QTY) */}
+      <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader><DialogTitle>Add New Medication</DialogTitle><DialogDescription>Register a new item to the inventory database.</DialogDescription></DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2"><Label>Medication Name</Label><Input value={newItemData.DrugName} onChange={(e) => setNewItemData({...newItemData, DrugName: e.target.value})} autoFocus placeholder="e.g. Paracetamol 500mg" /></div>
+            <div className="grid gap-2"><Label>Barcode</Label><div className="relative"><ScanLine className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" /><Input className="pl-10" value={newItemData.BarcodeID} onChange={(e) => setNewItemData({...newItemData, BarcodeID: e.target.value})} placeholder="Scan barcode..." /></div></div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-2"><Label>Stock</Label><div className="relative"><Package className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" /><Input className="pl-10" type="number" value={newItemData.QuantityInStock} onChange={(e) => setNewItemData({...newItemData, QuantityInStock: e.target.value})} placeholder="0" /></div></div>
+              <div className="grid gap-2"><Label>Min Qty</Label><div className="relative"><AlertTriangle className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" /><Input className="pl-10" type="number" value={newItemData.MinStockLevel} onChange={(e) => setNewItemData({...newItemData, MinStockLevel: e.target.value})} placeholder="10" /></div></div>
+              <div className="grid gap-2"><Label>Price</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" /><Input className="pl-10" type="number" value={newItemData.UnitPrice} onChange={(e) => setNewItemData({...newItemData, UnitPrice: e.target.value})} placeholder="0.00" /></div></div>
             </div>
-          )}
+            <div className="grid gap-2"><Label>Expiry Date</Label><Input type="date" value={newItemData.ExpiryDate} onChange={(e) => setNewItemData({...newItemData, ExpiryDate: e.target.value})} /></div>
+            <div className="grid gap-2"><Label>Category</Label><Select onValueChange={(val) => setNewItemData({...newItemData, Category: val})}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="Antibiotic">Antibiotic</SelectItem><SelectItem value="Analgesic">Analgesic</SelectItem><SelectItem value="General">General</SelectItem><SelectItem value="Supplement">Supplement</SelectItem></SelectContent></Select></div>
+          </div>
+          <DialogFooter><Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={handleRegisterDrug} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}{isSubmitting ? 'Registering...' : 'Register Item'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* NEW UI DIALOGS (placeholder functionality) */}
+      {/* 4. REORDER DIALOG */}
       <Dialog open={showReorder} onOpenChange={setShowReorder}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reorder Medication</DialogTitle>
-            <DialogDescription>{selectedItem && `Place reorder for ${selectedItem.name}`}</DialogDescription>
-          </DialogHeader>
-          {selectedItem && (
-            <div className="space-y-4">
-              <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Medication:</span>
-                  <span className="text-gray-900">{selectedItem.name}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Current Stock:</span>
-                  <span className="text-gray-900">{selectedItem.stock}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Minimum Stock:</span>
-                  <span className="text-gray-900">{selectedItem.minStock}</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="reorder-quantity">Reorder Quantity</Label>
-                <Input id="reorder-quantity" type="number" defaultValue={selectedItem.minStock * 2} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="supplier">Supplier</Label>
-                <Select>
-                  <SelectTrigger id="supplier">
-                    <SelectValue placeholder="Select supplier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="medplus">MedPlus Pharmaceuticals</SelectItem>
-                    <SelectItem value="healthsupply">HealthSupply Inc.</SelectItem>
-                    <SelectItem value="pharmacy-direct">Pharmacy Direct</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="reorder-notes">Notes</Label>
-                <Textarea id="reorder-notes" placeholder="Urgency, special instructions..." rows={2} />
-              </div>
-              <div className="flex gap-3">
-                <Button className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={() => {
-                  Swal.fire({
-                    icon: 'success',
-                    title: 'Reorder Placed',
-                    text: `Reorder for ${selectedItem.name} has been placed.`,
-                    timer: 1500,
-                    showConfirmButton: false
-                  });
-                  setShowReorder(false);
-                }}>
-                  Place Reorder
-                </Button>
-                <Button variant="outline" onClick={() => setShowReorder(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
+          <DialogHeader><DialogTitle>Reorder Stock</DialogTitle><DialogDescription>Request more stock for {selectedItem?.name}</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+             <div className="space-y-2"><Label>Quantity</Label><Input type="number" value={reorderFormData.quantity} onChange={(e) => setReorderFormData({...reorderFormData, quantity: e.target.value})} /></div>
+             <div className="space-y-2"><Label>Urgency</Label>
+               <Select value={reorderFormData.urgency} onValueChange={(val) => setReorderFormData({...reorderFormData, urgency: val})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">Low</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="high">High</SelectItem><SelectItem value="critical">Critical</SelectItem></SelectContent></Select>
+             </div>
+             <div className="space-y-2"><Label>Supplier</Label>
+                <Select value={reorderFormData.supplier} onValueChange={(val) => setReorderFormData({...reorderFormData, supplier: val})}><SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger><SelectContent><SelectItem value="MedPlus">MedPlus</SelectItem><SelectItem value="PharmaDirect">PharmaDirect</SelectItem></SelectContent></Select>
+             </div>
+             <div className="space-y-2"><Label>Notes</Label><Textarea value={reorderFormData.notes} onChange={(e) => setReorderFormData({...reorderFormData, notes: e.target.value})} /></div>
+             <Button className="w-full bg-purple-600" onClick={handleSubmitReorder} disabled={isReordering}>Submit Request</Button>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Receipt View Dialog (placeholder) */}
-      <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
+      {/* 5. RESTOCK DIALOG */}
+      <Dialog open={showRestockMode} onOpenChange={setShowRestockMode}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Dispensing Receipt</DialogTitle>
-            <DialogDescription>Receipt details</DialogDescription>
-          </DialogHeader>
-          {selectedReceipt && (
-            <div className="space-y-4">
-              <div className="p-4 border-2 border-gray-300 rounded-lg bg-white">
-                <div className="text-center mb-4 pb-4 border-b">
-                  <h3 className="text-lg">HealthCare Clinic Pharmacy</h3>
-                  <p className="text-sm text-gray-600">Receipt #: RX-{Math.floor(Math.random() * 10000)}</p>
-                </div>
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Patient:</span>
-                    <span className="text-gray-900">{selectedReceipt.patient}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Medication:</span>
-                    <span className="text-gray-900">{selectedReceipt.medication}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Quantity:</span>
-                    <span className="text-gray-900">{selectedReceipt.quantity}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Date & Time:</span>
-                    <span className="text-gray-900">{selectedReceipt.date}</span>
-                  </div>
-                </div>
-                <div className="pt-4 border-t text-center">
-                  <p className="text-sm text-gray-600">Thank you for using our pharmacy services</p>
-                </div>
+           <DialogHeader><DialogTitle>Rapid Restock Mode</DialogTitle><DialogDescription>Scan items to add +1 stock instantly</DialogDescription></DialogHeader>
+           <div className="py-4 space-y-4">
+              <Input autoFocus value={restockInput} onChange={(e) => setRestockInput(e.target.value)} onKeyDown={handleRestockScan} placeholder="Scan item..." className="text-center text-lg h-12" />
+              <div className="h-48 overflow-y-auto border rounded p-2 bg-gray-50">
+                  {scanHistory.length === 0 && <p className="text-center text-gray-400 py-4 text-sm">No items scanned yet.</p>}
+                  {scanHistory.map((log, i) => (
+                      <div key={i} className="flex justify-between items-center p-3 border-b last:border-0 bg-white rounded mb-1 shadow-sm">
+                          <span className="font-medium text-gray-700">{log.name}</span>
+                          {log.status === 'success' ? <Badge className="bg-green-600 hover:bg-green-700">+{log.count}</Badge> : <Badge variant="destructive">Failed</Badge>}
+                      </div>
+                  ))}
               </div>
-              <div className="flex gap-3">
-                <Button className="flex-1" onClick={() => {
-                  Swal.fire({
-                    icon: 'info',
-                    title: 'Printing',
-                    text: 'Receipt sent to printer.',
-                    timer: 1500,
-                    showConfirmButton: false
-                  });
-                  setShowReceipt(false);
-                }}>
-                  Print Receipt
-                </Button>
-                <Button variant="outline" onClick={() => setShowReceipt(false)}>
-                  Close
-                </Button>
-              </div>
-            </div>
-          )}
+           </div>
+           <Button className="w-full" onClick={() => setShowRestockMode(false)}>Finish</Button>
         </DialogContent>
       </Dialog>
+
+      {/* 6. EDIT DIALOG */}
+      <Dialog open={showEditItem} onOpenChange={setShowEditItem}>
+         <DialogContent>
+            <DialogHeader><DialogTitle>Edit Item</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+               <Label>Current Stock</Label>
+               <Input type="number" defaultValue={selectedItem?.stock} />
+               <Button className="w-full" onClick={() => { alert("Updated!"); setShowEditItem(false); }}>Update</Button>
+            </div>
+         </DialogContent>
+      </Dialog>
+
+      {/* 7. RECEIPT DIALOG */}
+      <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
+         <DialogContent><DialogHeader><DialogTitle>Receipt</DialogTitle></DialogHeader><p>Receipt printing...</p></DialogContent>
+      </Dialog>
+
+      <ProfileModal open={showProfile} onOpenChange={setShowProfile} profile={pharmacistProfile} />
     </div>
   );
 }

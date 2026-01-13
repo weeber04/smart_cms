@@ -3496,22 +3496,6 @@ export const savePrescription = async (req: Request, res: Response) => {
     // ============================================
     // 5. UPDATE PATIENT VISIT STATUS (OPTIONAL)
     // ============================================
-    console.log('5. Updating patient visit status...');
-    
-    try {
-      await db.query(`
-        UPDATE patient_visit 
-        SET 
-          VisitStatus = 'waiting-prescription',
-          UpdatedAt = NOW()
-        WHERE VisitID = ?
-      `, [consultationData.VisitID]);
-      
-      console.log('Patient visit status updated to waiting-prescription');
-    } catch (statusError) {
-      console.warn('Could not update patient visit status:', statusError);
-      // Continue anyway
-    }
 
     // ============================================
     // 6. COMMIT TRANSACTION
