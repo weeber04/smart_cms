@@ -19,7 +19,7 @@ export async function createMedicalHistoryFromConsultation(
       ConsultationID: consultationId,
       RecordType: 'condition',
       RecordName: formData.diagnosis,
-      Description: `Primary diagnosis: ${formData.diagnosis}\nDiagnosis code: ${formData.diagnosisCode || 'Not specified'}\nSeverity: ${formData.severityAssessment || 'Not specified'}`,
+      Description: `Primary diagnosis: ${formData.diagnosis}\nSeverity: ${formData.severityAssessment || 'Not specified'}`,
       Status: 'active',
       StartDate: new Date().toISOString().split('T')[0],
       Severity: formData.severityAssessment || 'moderate',

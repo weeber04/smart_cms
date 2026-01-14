@@ -18,7 +18,6 @@ import { ManageUserSection } from './ManageUserSection';
 import { AnalyticsSection } from './AnalyticsSection';
 import { Pill } from 'lucide-react';
 import { DrugRequestsSection } from './DrugRequestsSection';
-import { SettingsSection } from './SettingsSection';
 
 type Section = 'overview' | 'register' | 'manage' | 'analytics' | 'drug-requests' | 'settings';
 
@@ -150,7 +149,6 @@ export function Dashboard() {
     { id: 'manage' as Section, label: 'Manage Users', icon: Users },
     { id: 'drug-requests' as Section, label: 'Drug Requests', icon: Pill },
     { id: 'analytics' as Section, label: 'Analytics', icon: TrendingUp },
-    { id: 'settings' as Section, label: 'Settings', icon: Settings }
   ];
 
   const handleSignOut = () => {
@@ -409,7 +407,6 @@ export function Dashboard() {
           {activeSection === 'manage' && <ManageUserSection />}
           {activeSection === 'analytics' && <AnalyticsSection />}
           {activeSection === 'drug-requests' && <DrugRequestsSection />}
-          {activeSection === 'settings' && <SettingsSection />}
         </main>
       </div>
 

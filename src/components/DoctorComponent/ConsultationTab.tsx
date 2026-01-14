@@ -1108,6 +1108,10 @@ const handleFormChange = useCallback((field: keyof ConsultationFormData, value: 
     );
   };
 
+  useEffect(() => {
+  console.log('Prescription items updated:', prescriptionItems);
+}, [prescriptionItems]);
+
   return (
     <div className="grid lg:grid-cols-3 gap-6">
       {/* Left Panel - Patient Queue */}
@@ -1508,41 +1512,52 @@ const handleFormChange = useCallback((field: keyof ConsultationFormData, value: 
                 </TabsContent>
 
                 {/* SUMMARY TAB */}
-                <TabsContent value="summary" className="space-y-6">
-                  <SummaryTab 
-                    patientData={selectedPatientData}
-                    vitals={patientVitals}
-                    consultationForm={consultationForm}
-                    onBackToConsultation={() => setActiveSubTab('consultation')}
-                  />
-                  
-                  {/* Complete Button at bottom of Summary Tab */}
-                  <div className="flex justify-between items-center pt-4 border-t">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => setActiveSubTab('consultation')}
-                    >
-                      Back to Consultation
-                    </Button>
-                    
-                    <div className="flex gap-3">
-                      <Button 
-                        variant="outline"
-                        onClick={() => setActiveSubTab('prescription')}
-                      >
-                        Go to Prescription
-                      </Button>
-                      <CompleteConsultationButton
-                        consultationId={currentConsultationId}
-                        patientId={selectedPatient}
-                        doctorId={doctorId}
-                        isCompleting={isCompletingConsultation}
-                        onComplete={handleCompleteConsultation}
-                        canComplete={canCompleteConsultation}
-                      />
-                    </div>
-                  </div>
-                </TabsContent>
+{/* SUMMARY TAB */}
+<TabsContent value="summary" className="space-y-6">
+  <SummaryTab 
+    patientData={selectedPatientData}
+    vitals={patientVitals}
+    consultationForm={consultationForm}
+    consultationId={currentConsultationId}
+    
+    // ADD THESE NEW PROPS:
+    prescriptions={prescriptionItems}  // Add prescription data
+    allergies={patientAllergies}        // Add allergy data
+    medicalConditions={patientMedicalConditions}  // Add medical conditions
+    visits={patientVisits}              // Add visit history
+
+    
+    
+    onBackToConsultation={() => setActiveSubTab('consultation')}
+  />
+  
+  {/* Complete Button at bottom of Summary Tab */}
+  <div className="flex justify-between items-center pt-4 border-t">
+    <Button 
+      variant="outline" 
+      onClick={() => setActiveSubTab('consultation')}
+    >
+      Back to Consultation
+    </Button>
+    
+    <div className="flex gap-3">
+      <Button 
+        variant="outline"
+        onClick={() => setActiveSubTab('prescription')}
+      >
+        Go to Prescription
+      </Button>
+      <CompleteConsultationButton
+        consultationId={currentConsultationId}
+        patientId={selectedPatient}
+        doctorId={doctorId}
+        isCompleting={isCompletingConsultation}
+        onComplete={handleCompleteConsultation}
+        canComplete={canCompleteConsultation}
+      />
+    </div>
+  </div>
+</TabsContent>
               </Tabs>
             </CardContent>
           </Card>

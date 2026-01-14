@@ -496,15 +496,6 @@ export function ConsultationForm({
                   onClick={isConsultationSaved ? handleEditClick : undefined}
                 />
               )}
-              {renderField('Diagnosis Code (ICD-10)', 'diagnosisCode', () => 
-                <MemoizedSimpleInput
-                  field="diagnosisCode"
-                  value={formData.diagnosisCode || ''}
-                  placeholder="e.g., J06.9"
-                  readOnly={true}
-                  onClick={isConsultationSaved ? handleEditClick : undefined}
-                />
-              )}
               {renderField('Differential Diagnosis', 'differentialDiagnosis', () => 
                 <MemoizedTextInput
                   field="differentialDiagnosis"
@@ -575,16 +566,6 @@ export function ConsultationForm({
                   onClick={isConsultationSaved ? handleEditClick : undefined}
                 />
               )}
-              {renderField('Follow-up Instructions', 'followUpInstructions', () => 
-                <MemoizedTextInput
-                  field="followUpInstructions"
-                  value={formData.followUpInstructions || ''}
-                  placeholder="Instructions for follow-up..."
-                  rows={2}
-                  readOnly={true}
-                  onClick={isConsultationSaved ? handleEditClick : undefined}
-                />
-              )}
             </div>
           </div>
 
@@ -648,31 +629,8 @@ export function ConsultationForm({
                   onClick={isConsultationSaved ? handleEditClick : undefined}
                 />
               )}
-              {renderField('Warning Signs', 'warningSigns', () => 
-                <MemoizedTextInput
-                  field="warningSigns"
-                  value={formData.warningSigns || ''}
-                  placeholder="Red flag symptoms..."
-                  rows={2}
-                  readOnly={true}
-                  onClick={isConsultationSaved ? handleEditClick : undefined}
-                />
-              )}
-              {renderField('Disposition', 'disposition', () => 
-                <MemoizedSelectInput
-                  field="disposition"
-                  value={formData.disposition || ''}
-                  options={[
-                    { value: 'discharge', label: 'Discharge' },
-                    { value: 'admit', label: 'Admit to Hospital' },
-                    { value: 'referral', label: 'Refer to Specialist' },
-                    { value: 'observation', label: 'Observation' }
-                  ]}
-                  placeholder="Select disposition"
-                  readOnly={true}
-                />
-              )}
-              {formData.referralNeeded && (
+
+                            {formData.referralNeeded && (
                 <div className="md:col-span-2">
                   {renderField('Referral Notes', 'referralNotes', () => 
                     <MemoizedTextInput
@@ -686,6 +644,33 @@ export function ConsultationForm({
                   )}
                 </div>
               )}
+              {renderField('Warning Signs', 'warningSigns', () => 
+                <MemoizedTextInput
+                  field="warningSigns"
+                  value={formData.warningSigns || ''}
+                  placeholder="Red flag symptoms..."
+                  rows={2}
+                  readOnly={true}
+                  onClick={isConsultationSaved ? handleEditClick : undefined}
+                />
+              )}
+{renderField('Disposition', 'disposition', () => 
+  <MemoizedSelectInput
+    field="disposition"
+    value={formData.disposition || 'No disposition'}  // Default to 'No disposition'
+    options={[
+      { value: 'No disposition', label: 'No disposition required' },
+      { value: 'admit', label: 'Admit to Hospital' },
+      { value: 'referral', label: 'Refer to Specialist' },
+      { value: 'observation', label: 'Observation' }
+    ]}
+    placeholder="Select disposition"
+    readOnly={isReadOnly}
+    disabled={isReadOnly}
+    onChange={(value) => onFormChange('disposition', value)}
+  />
+)}
+
             </div>
           </div>
         </div>
@@ -951,19 +936,8 @@ export function ConsultationForm({
                   onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
                 />
               )}
-              {renderField('Diagnosis Code (ICD-10)', 'diagnosisCode', () => 
-                <MemoizedSimpleInput
-                  field="diagnosisCode"
-                  value={formData.diagnosisCode || ''}
-                  placeholder="e.g., J06.9"
-                  readOnly={isReadOnly}
-                  onChange={(value) => onFormChange('diagnosisCode', value)}
-                  onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
-                />
-              )}
-            </div>
-            
-            {renderField('Differential Diagnosis', 'differentialDiagnosis', () => 
+
+                          {renderField('Differential Diagnosis', 'differentialDiagnosis', () => 
               <MemoizedTextInput
                 field="differentialDiagnosis"
                 value={formData.differentialDiagnosis || ''}
@@ -974,6 +948,8 @@ export function ConsultationForm({
                 onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
               />
             )}
+            </div>
+            
             
             {renderField('Severity Assessment', 'severityAssessment', () => 
               <MemoizedSelectInput
@@ -1047,22 +1023,9 @@ export function ConsultationForm({
                 />
               )}
             </div>
-            
-            {renderField('Follow-up Instructions', 'followUpInstructions', () => 
-              <MemoizedTextInput
-                field="followUpInstructions"
-                value={formData.followUpInstructions || ''}
-                placeholder="Instructions for follow-up..."
-                rows={2}
-                readOnly={isReadOnly}
-                onChange={(value) => onFormChange('followUpInstructions', value)}
-                onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
-              />
-            )}
-            
             {/* Follow-up Section */}
             <div className="space-y-3 pt-3 border-t">
-              {renderField('Schedule Follow-up Appointment', 'needsFollowUp', () => 
+              {renderField('', 'needsFollowUp', () => 
                 <MemoizedCheckboxInput
                   field="needsFollowUp"
                   checked={formData.needsFollowUp || false}
@@ -1136,26 +1099,52 @@ export function ConsultationForm({
                     onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
                   />
                 )}
-                {renderField('Disposition', 'disposition', () => 
-                  <MemoizedSelectInput
-                    field="disposition"
-                    value={formData.disposition || ''}
-                    options={[
-                      { value: 'discharge', label: 'Discharge' },
-                      { value: 'admit', label: 'Admit to Hospital' },
-                      { value: 'referral', label: 'Refer to Specialist' },
-                      { value: 'observation', label: 'Observation' }
-                    ]}
-                    placeholder="Select disposition"
+{renderField('Disposition', 'disposition', () => 
+  <MemoizedSelectInput
+    field="disposition"
+    value={formData.disposition || 'No disposition'}  // Default to 'No disposition'
+    options={[
+      { value: 'No disposition', label: 'No disposition required' },
+      { value: 'admit', label: 'Admit to Hospital' },
+      { value: 'referral', label: 'Refer to Specialist' },
+      { value: 'observation', label: 'Observation' }
+    ]}
+    placeholder="Select disposition"
+    readOnly={isReadOnly}
+    disabled={isReadOnly}
+    onChange={(value) => onFormChange('disposition', value)}
+  />
+)}
+              </div> 
+              
+              <div className="grid md:grid-cols-2 gap-4">
+                {renderField('Lifestyle Advice', 'lifestyleAdvice', () => 
+                  <MemoizedTextInput
+                    field="lifestyleAdvice"
+                    value={formData.lifestyleAdvice || ''}
+                    placeholder="Diet, exercise, other lifestyle recommendations..."
+                    rows={2}
                     readOnly={isReadOnly}
-                    disabled={isReadOnly}
-                    onChange={(value) => onFormChange('disposition', value)}
+                    onChange={(value) => onFormChange('lifestyleAdvice', value)}
+                    onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
+                  />
+                )}
+                
+                {renderField('Warning Signs', 'warningSigns', () => 
+                  <MemoizedTextInput
+                    field="warningSigns"
+                    value={formData.warningSigns || ''}
+                    placeholder="Red flag symptoms to watch for..."
+                    rows={2}
+                    readOnly={isReadOnly}
+                    onChange={(value) => onFormChange('warningSigns', value)}
+                    onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
                   />
                 )}
               </div>
-              
-              <div className="space-y-2">
-                {renderField('Referral Needed', 'referralNeeded', () => 
+
+                                              <div className="space-y-2">
+                {renderField('', 'referralNeeded', () => 
                   <MemoizedCheckboxInput
                     field="referralNeeded"
                     checked={formData.referralNeeded || false}
@@ -1166,9 +1155,9 @@ export function ConsultationForm({
                   />
                 )}
               </div>
-              
-              {formData.referralNeeded && (
-                <div className="space-y-2">
+
+                            {formData.referralNeeded && (
+                <div className="space-y-4">
                   {renderField('Referral Notes', 'referralNotes', () => 
                     <MemoizedTextInput
                       field="referralNotes"
@@ -1180,31 +1169,8 @@ export function ConsultationForm({
                       onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
                     />
                   )}
+
                 </div>
-              )}
-              
-              {renderField('Lifestyle Advice', 'lifestyleAdvice', () => 
-                <MemoizedTextInput
-                  field="lifestyleAdvice"
-                  value={formData.lifestyleAdvice || ''}
-                  placeholder="Diet, exercise, other lifestyle recommendations..."
-                  rows={2}
-                  readOnly={isReadOnly}
-                  onChange={(value) => onFormChange('lifestyleAdvice', value)}
-                  onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
-                />
-              )}
-              
-              {renderField('Warning Signs', 'warningSigns', () => 
-                <MemoizedTextInput
-                  field="warningSigns"
-                  value={formData.warningSigns || ''}
-                  placeholder="Red flag symptoms to watch for..."
-                  rows={2}
-                  readOnly={isReadOnly}
-                  onChange={(value) => onFormChange('warningSigns', value)}
-                  onClick={isReadOnly && isConsultationSaved ? handleEditClick : undefined}
-                />
               )}
             </div>
           </div>

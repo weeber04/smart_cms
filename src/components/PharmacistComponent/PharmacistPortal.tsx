@@ -407,29 +407,6 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
       setRestockInput('');
     }
   };
-
-  // =========================
-  // 5. HELPER DATA & PAGINATION
-  // =========================
-  
-  // Inventory Helper
-  const filteredInventory = inventoryItems.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const sortedInventory = [...filteredInventory].sort((a, b) => {
-    if (sortOption === 'name-asc') return a.name.localeCompare(b.name);
-    if (sortOption === 'stock-asc') return a.stock - b.stock;
-    return 0;
-  });
-  const totalPages = Math.ceil(sortedInventory.length / itemsPerPage);
-  const paginatedInventory = sortedInventory.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const lowStockItems = inventoryItems.filter(item => item.status === 'low' || item.status === 'critical');
-
-  // ⚡ Expiry Pagination Logic
-  const totalExpiryPages = Math.ceil(expiringItems.length / expiryPerPage);
-  const paginatedExpiryItems = expiringItems.slice((expiryPage - 1) * expiryPerPage, expiryPage * expiryPerPage);
-
-  // ⚡ Dispensing History Pagination Logic
-  const totalHistoryPages = Math.ceil(dispensingHistory.length / historyPerPage);
-  const paginatedHistory = dispensingHistory.slice((historyPage - 1) * historyPerPage, historyPage * historyPerPage);
   
   const pharmacistProfile = {
     name: user?.name || 'Loading...',
@@ -447,6 +424,41 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
   const isPrescriptionComplete = selectedPrescriptionGroup?.items?.every((i:any) => (i.dispensedCount || 0) >= i.quantity);
   const criticalExpiry = expiringItems.filter(i => i.daysLeft <= 30);
   const warningExpiry = expiringItems.filter(i => i.daysLeft > 30 && i.daysLeft <= 90);
+
+
+// Pending Prescriptions (NEW)
+const [pendingPage, setPendingPage] = useState(1);
+const pendingPerPage = 3; // Or adjust as needed
+
+  // =========================
+  // 5. HELPER DATA & PAGINATION
+  // =========================
+  
+  // Inventory Helper
+  const filteredInventory = inventoryItems.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+const sortedInventory = [...filteredInventory].sort((a, b) => {
+  if (sortOption === 'name-asc') return a.name.localeCompare(b.name);
+  if (sortOption === 'stock-asc') return a.stock - b.stock;
+  return 0;
+});
+const totalPages = Math.ceil(sortedInventory.length / itemsPerPage);
+const paginatedInventory = sortedInventory.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+const lowStockItems = inventoryItems.filter(item => item.status === 'low' || item.status === 'critical');
+
+// ⚡ Expiry Pagination Logic
+const totalExpiryPages = Math.ceil(expiringItems.length / expiryPerPage);
+const paginatedExpiryItems = expiringItems.slice((expiryPage - 1) * expiryPerPage, expiryPage * expiryPerPage);
+
+// ⚡ Dispensing History Pagination Logic
+const totalHistoryPages = Math.ceil(dispensingHistory.length / historyPerPage);
+const paginatedHistory = dispensingHistory.slice((historyPage - 1) * historyPerPage, historyPage * historyPerPage);
+
+// ⚡ Pending Prescriptions Pagination Logic (NEW)
+const totalPendingPages = Math.ceil(pendingRxList.length / pendingPerPage);
+const paginatedPending = pendingRxList.slice(
+  (pendingPage - 1) * pendingPerPage,
+  pendingPage * pendingPerPage
+);
 
   // =========================
   // 6. RENDER
@@ -577,24 +589,81 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
                 </CardContent>
               </Card>
 
-              {/* Pending Prescription Card */}
-              <Card className="lg:col-span-1 h-fit">
-                <CardHeader className="flex flex-row justify-between"><div><CardTitle>Pending Prescription</CardTitle><CardDescription>Queue to fulfill</CardDescription></div><Button variant="ghost" size="sm" onClick={fetchPendingRx}><RefreshCw className="size-4" /></Button></CardHeader>
-                <CardContent className="space-y-4">
-                    {pendingRxList.map((group: any) => (
-                        <div key={group.prescriptionId} className="p-4 border rounded-lg bg-white shadow-sm">
-                            <div className="flex justify-between mb-2"><span className="font-bold">{group.patient}</span><Badge>{group.items?.length} Items</Badge></div>
-                            <div className="mb-4 space-y-2">
-                                {group.items?.map((item: any) => (
-                                    <div key={item.itemId} className="flex justify-between text-sm"><span className="text-gray-700 font-medium">{item.medication}</span><span className="text-gray-500">x{item.quantity}</span></div>
-                                ))}
-                            </div>
-                            <Button className="w-full bg-purple-600" onClick={() => { setSelectedPrescriptionGroup(group); setScannedItems([]); setShowDispenseScanner(true); setTimeout(() => scanInputRef.current?.focus(), 100); }}>Prepare & Scan</Button>
-                        </div>
-                    ))}
-                    {pendingRxList.length === 0 && <p className="text-gray-500 text-center">No pending prescriptions</p>}
-                </CardContent>
-              </Card>
+{/* Pending Prescription Card */}
+<Card className="lg:col-span-1 h-fit">
+  <CardHeader className="flex flex-row justify-between">
+    <div>
+      <CardTitle>Pending Prescription</CardTitle>
+      <CardDescription>Queue to fulfill</CardDescription>
+    </div>
+    <div className="flex items-center gap-2">
+      <Badge variant="outline">{pendingRxList.length} total</Badge>
+      <Button variant="ghost" size="sm" onClick={fetchPendingRx}>
+        <RefreshCw className="size-4" />
+      </Button>
+    </div>
+  </CardHeader>
+  <CardContent className="space-y-4">
+    {/* Prescription list */}
+    {paginatedPending.map((group: any) => (
+      <div key={group.prescriptionId} className="p-4 border rounded-lg bg-white shadow-sm">
+        <div className="flex justify-between mb-2">
+          <span className="font-bold">{group.patient}</span>
+          <Badge>{group.items?.length} Items</Badge>
+        </div>
+        <div className="mb-4 space-y-2">
+          {group.items?.map((item: any) => (
+            <div key={item.itemId} className="flex justify-between text-sm">
+              <span className="text-gray-700 font-medium">{item.medication}</span>
+              <span className="text-gray-500">x{item.quantity}</span>
+            </div>
+          ))}
+        </div>
+        <Button 
+          className="w-full bg-purple-600" 
+          onClick={() => { 
+            setSelectedPrescriptionGroup(group); 
+            setScannedItems([]); 
+            setShowDispenseScanner(true); 
+            setTimeout(() => scanInputRef.current?.focus(), 100); 
+          }}
+        >
+          Prepare & Scan
+        </Button>
+      </div>
+    ))}
+    
+    {/* No prescriptions message */}
+    {pendingRxList.length === 0 && (
+      <p className="text-gray-500 text-center">No pending prescriptions</p>
+    )}
+    
+    {/* Pagination controls */}
+    {pendingRxList.length > 0 && (
+      <div className="flex justify-between items-center pt-4 border-t">
+        <Button 
+          size="sm" 
+          variant="outline" 
+          onClick={() => setPendingPage(p => Math.max(1, p - 1))} 
+          disabled={pendingPage === 1}
+        >
+          <ChevronLeft className="size-4 mr-2" /> Prev
+        </Button>
+        <span className="text-sm text-gray-500">
+          Page {pendingPage} of {totalPendingPages || 1}
+        </span>
+        <Button 
+          size="sm" 
+          variant="outline" 
+          onClick={() => setPendingPage(p => Math.min(totalPendingPages, p + 1))} 
+          disabled={pendingPage === totalPendingPages || totalPendingPages === 0}
+        >
+          Next <ChevronRight className="size-4 ml-2" />
+        </Button>
+      </div>
+    )}
+  </CardContent>
+</Card>
             </div>
           )}
 

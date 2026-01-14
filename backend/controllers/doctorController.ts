@@ -2,6 +2,7 @@
 import { Request, Response } from "express";
 import { db } from "../db";
 import { autoCreateMedicalHistoryFromConsultation } from './medicalHistoryController';
+import { RowDataPacket, OkPacket, ResultSetHeader } from 'mysql2';
 
 // Helper function for auto-billing
 const createAutoBill = async (consultationId: number, patientId: number, insuranceProvider: string | null) => {
@@ -4503,5 +4504,121 @@ export const getDoctorPatientsWithAppointmentsCount = async (req: Request, res: 
   } catch (error) {
     console.error('Error fetching patients with appointments count:', error);
     res.status(500).json({ error: 'Failed to fetch patients with appointments count' });
+  }
+};
+
+// Add this function to your doctor controller
+// In your backend prescription controller
+export const getPrescriptionsByConsultation = async (req: Request, res: Response) => {
+  try {
+    const consultationId = req.params.consultationId;
+    
+    console.log('=== DEBUG: Fetching prescriptions for consultation:', consultationId);
+    
+    // Check if consultationId is valid
+    if (!consultationId || isNaN(Number(consultationId))) {
+      console.error('Invalid consultation ID:', consultationId);
+      return res.status(400).json({ error: "Invalid consultation ID" });
+    }
+    
+    // First, let's check what's in the database
+    console.log('=== DEBUG: Checking prescription table structure');
+    
+    // Simple test query first
+    const [testResult] = await db.query<RowDataPacket[]>(`
+      SELECT 
+        p.PrescriptionID,
+        p.ConsultationID,
+        p.PrescribedDate,
+        p.Status
+      FROM prescription p
+      WHERE p.ConsultationID = ?
+      LIMIT 1
+    `, [consultationId]);
+    
+    console.log('=== DEBUG: Test query result:', testResult);
+    
+    // If no prescriptions found, return empty array
+    if (!testResult || testResult.length === 0) {
+      console.log('=== DEBUG: No prescriptions found for consultation:', consultationId);
+      return res.json([]);
+    }
+    
+    // Now run the full query
+    console.log('=== DEBUG: Running full prescription query');
+    
+    const [prescriptions] = await db.query<RowDataPacket[]>(`
+      SELECT 
+        p.PrescriptionID,
+        p.PrescribedDate,
+        p.Status,
+        pi.ItemID,
+        pi.DrugID,
+        d.DrugName,
+        d.BarcodeID as DrugCode,
+        pi.Dosage,
+        pi.Frequency,
+        pi.Duration,
+        pi.Quantity,
+        d.UnitPrice,
+        (pi.Quantity * d.UnitPrice) as TotalPrice
+      FROM prescription p
+      LEFT JOIN prescriptionitem pi ON p.PrescriptionID = pi.PrescriptionID
+      LEFT JOIN drug d ON pi.DrugID = d.DrugID
+      WHERE p.ConsultationID = ?
+      ORDER BY p.PrescribedDate DESC, pi.ItemID ASC
+    `, [consultationId]);
+    
+    console.log('=== DEBUG: Raw query result count:', prescriptions.length);
+    console.log('=== DEBUG: First item:', prescriptions[0]);
+    
+    // Group by prescription
+    const groupedPrescriptions: Record<number, any> = {};
+    
+    prescriptions.forEach((item: any) => {
+      const key = item.PrescriptionID;
+      
+      if (!groupedPrescriptions[key]) {
+        groupedPrescriptions[key] = {
+          PrescriptionID: item.PrescriptionID,
+          PrescribedDate: item.PrescribedDate,
+          Status: item.Status,
+          items: []
+        };
+      }
+      
+      if (item.ItemID) { // Only add if there are items
+        groupedPrescriptions[key].items.push({
+          ItemID: item.ItemID,
+          DrugID: item.DrugID,
+          DrugName: item.DrugName,
+          DrugCode: item.DrugCode,
+          Dosage: item.Dosage,
+          Frequency: item.Frequency,
+          Duration: item.Duration,
+          Quantity: item.Quantity,
+          UnitPrice: item.UnitPrice,
+          TotalPrice: item.TotalPrice
+        });
+      }
+    });
+    
+    const result = Object.values(groupedPrescriptions);
+    console.log('=== DEBUG: Final result count:', result.length);
+    
+    res.json(result);
+    
+  } catch (error: any) {
+    console.error("=== ERROR: Failed to fetch prescriptions:", error);
+    console.error("SQL Error code:", error.code);
+    console.error("SQL Error message:", error.sqlMessage);
+    console.error("Full error stack:", error.stack);
+    
+    res.status(500).json({ 
+      error: "Failed to fetch prescriptions",
+      message: error.message,
+      code: error.code,
+      sqlMessage: error.sqlMessage
+    });
   }
 };

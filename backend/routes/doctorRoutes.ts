@@ -52,7 +52,8 @@ updateConsultation,
   getAllPatients2,
   getDoctorConsultationsCount,
   getDoctorPrescriptionsCount,
-  getDoctorPatientsWithAppointmentsCount
+  getDoctorPatientsWithAppointmentsCount,
+  getPrescriptionsByConsultation
 
   // Add these to your doctorRoutes.ts
 
@@ -154,6 +155,7 @@ router.post('/prescription/save', savePrescription); // NEW - your frontend call
 router.get('/patient/:patientId/prescriptions', getPatientPrescriptions); // NEW
 router.post('/prescription', createPrescription); // Keep old one for backward compatibility
 router.get('/prescriptions/recent', getRecentPrescriptions); // Keep old one
+router.get('/prescriptions/consultation/:consultationId',   getPrescriptionsByConsultation);
 
 
 
