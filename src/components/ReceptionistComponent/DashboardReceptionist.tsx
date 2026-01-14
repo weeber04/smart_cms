@@ -7,6 +7,7 @@ export function Dashboard({
   doctors, 
   waitingRoomList, 
   todayAppointments,
+  onNavigateToBilling,
   refreshData 
 }: any) {
   return (
@@ -23,10 +24,11 @@ export function Dashboard({
       
       {/* Right column: Detailed Waiting List */}
       <div className="lg:col-span-2">
-        <WaitingList 
-          waitingRoomList={waitingRoomList}
-          refreshData={refreshData}
-        />
+    <WaitingList
+      waitingRoomList={waitingRoomList}
+      refreshData={refreshData}
+      onNavigateToBilling={onNavigateToBilling}
+    />
       </div>
     </div>
   );

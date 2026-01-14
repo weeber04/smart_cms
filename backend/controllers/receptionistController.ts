@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { ResultSetHeader, RowDataPacket } from 'mysql2'; // Add this import
+import { RowDataPacket, OkPacket, ResultSetHeader } from 'mysql2';
 import { db } from "../db";
 import bcrypt from 'bcryptjs';
 
@@ -1043,59 +1043,6 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     res.status(500).json({ 
       success: false,
       error: "Failed to load dashboard stats" 
-    });
-  }
-};
-
-// receptionistController.ts
-export const callPatientToBilling = async (req: Request, res: Response) => {
-  const { visitId } = req.body;
-
-  if (!visitId) {
-    return res.status(400).json({ 
-      success: false,
-      error: "Missing visitId" 
-    });
-  }
-
-  try {
-    await db.query('START TRANSACTION');
-    
-    // Update QueueStatus from 'waiting' to 'in-progress'
-    const [result]: any = await db.query(`
-      UPDATE patient_visit 
-      SET 
-        QueueStatus = 'in-progress',
-        CalledTime = NOW(),
-        UpdatedAt = NOW()
-      WHERE VisitID = ? 
-        AND VisitStatus = 'to-be-billed'
-        AND QueueStatus = 'waiting'
-    `, [visitId]);
-
-    if (result.affectedRows === 0) {
-      await db.query('ROLLBACK');
-      return res.status(404).json({ 
-        success: false,
-        error: "Visit not found or not in correct status" 
-      });
-    }
-
-    await db.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: "Patient called to billing",
-      visitId: visitId,
-      newQueueStatus: 'in-progress'
-    });
-
-  } catch (error) {
-    await db.query('ROLLBACK');
-    console.error("Call patient to billing error:", error);
-    res.status(500).json({ 
-      success: false,
-      error: "Failed to call patient to billing"
     });
   }
 };
@@ -2791,3 +2738,65 @@ export const findPatientByIC = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to reschedule appointment' });
   }
 };
+
+// routes/receptionist.js (or similar)
+export const callPatientToBilling = async (req: Request, res: Response) => {
+  const { visitId } = req.body;
+
+  console.log(`📞 Calling patient to billing for VisitID: ${visitId}`);
+
+  try {
+    if (!visitId) {
+      return res.status(400).json({
+        success: false,
+        error: "Visit ID is required"
+      });
+    }
+
+    // Use type assertion or cast the result
+    const result: any = await db.query(
+      `UPDATE patient_visit 
+       SET QueueStatus = 'in-progress', 
+           CalledTime = NOW(),
+           UpdatedAt = NOW()
+       WHERE VisitID = ? AND VisitStatus = 'to-be-billed'`,
+      [visitId]
+    );
+
+    // Check if any rows were affected
+    const affectedRows = result[0]?.affectedRows || result.affectedRows || 0;
+
+    console.log('Affected rows:', affectedRows);
+
+    if (affectedRows === 0) {
+      console.log('No visit found or visit not in correct status');
+      return res.status(404).json({
+        success: false,
+        error: "Visit not found or cannot be called"
+      });
+    }
+
+    console.log(`✅ Patient called successfully for VisitID: ${visitId}`);
+
+    res.json({
+      success: true,
+      message: "Patient called to billing successfully",
+      visitId: visitId,
+      calledTime: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error("🔥 Error calling patient:", error);
+    console.error("Error message:", error.message);
+    
+    res.status(500).json({
+      success: false,
+      error: "Server error while calling patient",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Add this function inside your WaitingList component
+
+

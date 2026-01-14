@@ -8,6 +8,7 @@ import { DoctorPortal } from './components/DoctorComponent/DoctorPortal';
 import { ReceptionistPortal } from './components/ReceptionistComponent/ReceptionistPortal';
 import { PharmacistPortal } from './components/PharmacistComponent/PharmacistPortal'; 
 import { PharmacistPortal2 } from './components/PharmacistPortal2'; 
+import { BillingManagement } from './components/ReceptionistComponent/BillingManagement';
 
 export default function App() {
   const { user, isLoading, logout } = useAuth(); // Added logout from context
@@ -75,8 +76,17 @@ export default function App() {
 
         <Route path="/test-pharmacist" element={<PharmacistPortal2 onSignOut={() => window.location.reload()} />} />
 
-        {/* Catch-all route */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+                <Route 
+          path="/receptionist/billing" 
+          element={
+            <ProtectedRoute requiredRole={['Receptionist', 'receptionist']}>
+              <BillingManagement 
+                receptionistId={user?.userId || null} 
+                refreshData={() => {/* implement refresh logic */}}
+              />
+            </ProtectedRoute>
+          } 
+        />
       </Routes>
     </div>
   );

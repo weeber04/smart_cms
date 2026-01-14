@@ -37,6 +37,20 @@ export function ReceptionistPortal() {
   const [doctors, setDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const handleNavigateToBilling = (visitData: {
+  visitId: number;
+  patientId: number;
+  patientName: string;
+}) => {
+  // Set active tab to billing
+  setActiveTab('billing');
+  
+  // You can also set selected patient data in BillingManagement
+  // This requires modifying BillingManagement to accept initial data
+  console.log('Navigating to billing with:', visitData);
+};
+
+
   // Get receptionistId from AuthContext user if available
   useEffect(() => {
     if (user?.userId) {
@@ -146,7 +160,7 @@ export function ReceptionistPortal() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <NotificationPanel role="receptionist" />
+            
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setShowProfile(true)}>
               <Avatar>
                 <AvatarFallback className="bg-orange-600 text-white">
@@ -268,13 +282,14 @@ export function ReceptionistPortal() {
 
           {/* Tab Content */}
           {activeTab === 'dashboard' && (
-            <Dashboard
-              receptionistId={receptionistId}
-              doctors={doctors}
-              waitingRoomList={waitingRoomList}
-              todayAppointments={todayAppointments}
-              refreshData={() => refreshData('waiting')}
-            />
+<Dashboard
+  receptionistId={receptionistId}
+  doctors={doctors}
+  waitingRoomList={waitingRoomList}
+  todayAppointments={todayAppointments}
+  refreshData={() => refreshData('waiting')}
+  onNavigateToBilling={handleNavigateToBilling}
+/>
           )}
           {activeTab === 'register' && (
             <RegisterPatient

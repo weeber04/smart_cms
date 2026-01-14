@@ -247,3 +247,274 @@ export const checkAuth = (req: Request, res: Response) => {
     user: req.user
   });
 };
+
+// routes/auth.js
+export const verifyEmail = async (req: Request, res: Response) => {
+  const { email } = req.body;
+
+  console.log("📧 Email verification attempt for:", email);
+
+  try {
+    if (!email) {
+      console.log("❌ Email is required");
+      return res.status(400).json({
+        success: false,
+        error: "Email is required"
+      });
+    }
+
+    // Check in useraccount table (staff users)
+    const [staffRows]: any = await db.query(
+      "SELECT UserID, Name, ICNo FROM useraccount WHERE Email = ? AND Status = 'Active'",
+      [email]
+    );
+
+    // Check in patientaccount table (patient users)
+    const [patientRows]: any = await db.query(
+      "SELECT PatientAccountID, Name, ICNumber FROM patientaccount WHERE Email = ?",
+      [email]
+    );
+
+    let user = null;
+    let userType = '';
+
+    if (staffRows.length > 0) {
+      user = staffRows[0];
+      userType = 'staff';
+      console.log("👨‍⚕️ Staff user found:", { id: user.UserID, name: user.Name });
+    } else if (patientRows.length > 0) {
+      user = patientRows[0];
+      userType = 'patient';
+      console.log("👤 Patient user found:", { id: user.PatientAccountID, name: user.Name });
+    }
+
+    if (!user) {
+      console.log("❌ No user found with email:", email);
+      return res.status(404).json({
+        success: false,
+        error: "No account found with this email address"
+      });
+    }
+
+    // Mask IC number for security (show only last 4 digits)
+    const maskedIc = user.ICNo || user.ICNumber;
+    const displayIc = maskedIc ? 
+      '•••••' + maskedIc.slice(-4) : 
+      'Not available';
+
+    console.log("✅ Email verified successfully");
+
+    res.json({
+      success: true,
+      message: "Email verified",
+      user: {
+        name: user.Name,
+        email: email,
+        maskedIc: maskedIc,
+        displayIc: displayIc,
+        userType: userType,
+        userId: user.UserID || user.PatientAccountID
+      }
+    });
+
+  } catch (error: any) {
+    console.error("🔥 Email verification error:", error);
+    console.error("Error message:", error.message);
+    
+    res.status(500).json({
+      success: false,
+      error: "Server error during email verification",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+export const verifyIcNumber = async (req: Request, res: Response) => {
+  const { email, icNumber } = req.body;
+
+  console.log("🔐 IC verification attempt:", { email, icNumber });
+
+  try {
+    if (!email || !icNumber) {
+      console.log("❌ Email and IC number are required");
+      return res.status(400).json({
+        success: false,
+        error: "Email and IC number are required"
+      });
+    }
+
+    // Clean IC number (remove non-numeric characters)
+    const cleanIc = icNumber.replace(/\D/g, '');
+
+    if (cleanIc.length < 8) {
+      console.log("❌ Invalid IC number length");
+      return res.status(400).json({
+        success: false,
+        error: "Invalid IC number format"
+      });
+    }
+
+    // Check in useraccount table (staff users)
+    const [staffRows]: any = await db.query(
+      "SELECT UserID, Name, Email, ICNo, Role FROM useraccount WHERE Email = ? AND ICNo = ? AND Status = 'Active'",
+      [email, cleanIc]
+    );
+
+    // Check in patientaccount table (patient users)
+    const [patientRows]: any = await db.query(
+      "SELECT PatientAccountID, Name, Email, ICNumber FROM patientaccount WHERE Email = ? AND ICNumber = ?",
+      [email, cleanIc]
+    );
+
+    let user = null;
+    let userType = '';
+
+    if (staffRows.length > 0) {
+      user = staffRows[0];
+      userType = 'staff';
+      console.log("👨‍⚕️ Staff IC verified:", { id: user.UserID, name: user.Name, role: user.Role });
+    } else if (patientRows.length > 0) {
+      user = patientRows[0];
+      userType = 'patient';
+      console.log("👤 Patient IC verified:", { id: user.PatientAccountID, name: user.Name });
+    }
+
+    if (!user) {
+      console.log("❌ IC number doesn't match email:", { email, icNumber });
+      return res.status(401).json({
+        success: false,
+        error: "IC number does not match the email provided"
+      });
+    }
+
+    console.log("✅ IC number verified successfully");
+
+    res.json({
+      success: true,
+      message: "Identity verified successfully",
+      user: {
+        name: user.Name,
+        email: user.Email,
+        icNumber: cleanIc,
+        userType: userType,
+        userId: user.UserID || user.PatientAccountID,
+        role: user.Role || 'patient'
+      }
+    });
+
+  } catch (error: any) {
+    console.error("🔥 IC verification error:", error);
+    console.error("Error message:", error.message);
+    
+    res.status(500).json({
+      success: false,
+      error: "Server error during IC verification",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  const { email, icNumber, newPassword } = req.body;
+
+  console.log("🔄 Password reset request for:", email);
+
+  try {
+    if (!email || !icNumber || !newPassword) {
+      console.log("❌ Missing required fields");
+      return res.status(400).json({
+        success: false,
+        error: "All fields are required"
+      });
+    }
+
+    // Password validation
+    if (newPassword.length < 8) {
+      console.log("❌ Password too short");
+      return res.status(400).json({
+        success: false,
+        error: "Password must be at least 8 characters long"
+      });
+    }
+
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      console.log("❌ Password doesn't meet requirements");
+      return res.status(400).json({
+        success: false,
+        error: "Password must contain uppercase, lowercase letters and numbers"
+      });
+    }
+
+    // Clean IC number
+    const cleanIc = icNumber.replace(/\D/g, '');
+
+    // Verify user exists and matches credentials (for security)
+    const [staffRows]: any = await db.query(
+      "SELECT UserID FROM useraccount WHERE Email = ? AND ICNo = ? AND Status = 'Active'",
+      [email, cleanIc]
+    );
+
+    const [patientRows]: any = await db.query(
+      "SELECT PatientAccountID FROM patientaccount WHERE Email = ? AND ICNumber = ?",
+      [email, cleanIc]
+    );
+
+    if (staffRows.length === 0 && patientRows.length === 0) {
+      console.log("❌ User not found or credentials don't match");
+      return res.status(404).json({
+        success: false,
+        error: "User not found or credentials don't match"
+      });
+    }
+
+    // Hash the new password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update password based on user type
+    let updateResult;
+    if (staffRows.length > 0) {
+      // Update staff user password
+      updateResult = await db.query(
+        "UPDATE useraccount SET PasswordHash = ? WHERE Email = ? AND ICNo = ?",
+        [hashedPassword, email, cleanIc]
+      );
+      console.log("👨‍⚕️ Staff password updated for UserID:", staffRows[0].UserID);
+    } else {
+      // Update patient password
+      updateResult = await db.query(
+        "UPDATE patientaccount SET PasswordHash = ? WHERE Email = ? AND ICNumber = ?",
+        [hashedPassword, email, cleanIc]
+      );
+      console.log("👤 Patient password updated for PatientAccountID:", patientRows[0].PatientAccountID);
+    }
+
+    console.log("✅ Password reset successfully for:", email);
+
+    // Optional: Log the password reset action
+    try {
+      await db.query(
+        "INSERT INTO password_reset_logs (email, reset_at, ip_address) VALUES (?, NOW(), ?)",
+        [email, req.ip || 'unknown']
+      );
+    } catch (logError) {
+      console.log("Note: Could not log password reset action");
+    }
+
+    res.json({
+      success: true,
+      message: "Password has been reset successfully",
+      redirect: "/signin"
+    });
+
+  } catch (error: any) {
+    console.error("🔥 Password reset error:", error);
+    console.error("Error message:", error.message);
+    
+    res.status(500).json({
+      success: false,
+      error: "Server error during password reset",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

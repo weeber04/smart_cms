@@ -1422,14 +1422,6 @@ const CreateAccountDialog = () => {
   <Button 
     variant="outline" 
     className="h-20 flex flex-col gap-2" 
-    onClick={() => alert('Calling patient...')}
-  >
-    <Phone className="size-5" />
-    <span className="text-sm">Call Patient</span>
-  </Button>
-  <Button 
-    variant="outline" 
-    className="h-20 flex flex-col gap-2" 
     onClick={() => setShowCreateAccount(true)}
   >
     <UserPlus className="size-5" />

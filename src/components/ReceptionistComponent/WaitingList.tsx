@@ -8,6 +8,7 @@ import { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
+import { useNavigate } from 'react-router-dom';
 
 // Change from this:
 interface WaitingListProps {
@@ -24,7 +25,18 @@ interface WaitingListProps {
 // Define type for triage priority
 type TriagePriority = 'critical' | 'high' | 'medium' | 'low' | string;
 
-export function WaitingList({ waitingRoomList, refreshData }: WaitingListProps) {
+interface WaitingListProps {
+  waitingRoomList: any[];
+  refreshData: () => void;
+  // Add this prop:
+  onNavigateToBilling?: (visitData: {
+    visitId: number;
+    patientId: number;
+    patientName: string;
+  }) => void;
+}
+
+export function WaitingList({ waitingRoomList, refreshData, onNavigateToBilling }: WaitingListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [cancelVisitId, setCancelVisitId] = useState<number | null>(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -357,6 +369,81 @@ const getStatusBadge = (visit: any) => {
     }
   };
 
+  const handleCallPatient = async (visitId: number, patientName: string, queueNumber: string) => {
+  if (!confirm(`Call patient ${patientName} (${queueNumber}) to billing counter?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch("http://localhost:3001/api/receptionist/call-to-billing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visitId })
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success === true) {
+      // Show success message
+      alert(`Patient ${patientName} has been called to billing!`);
+      
+      // Refresh the data to show updated status
+      refreshData();
+      
+      // Optionally, show a notification or play a sound
+      showNotification(`Patient ${patientName} called to billing`);
+      
+    } else {
+      alert(result.error || 'Failed to call patient');
+    }
+  } catch (error) {
+    console.error("Call patient error:", error);
+    alert("Failed to call patient. Please try again.");
+  }
+};
+
+// Add this helper function for notifications
+const showNotification = (message: string) => {
+  // Check if browser supports notifications
+  if (!("Notification" in window)) {
+    console.log("This browser does not support desktop notification");
+    return;
+  }
+
+  // Check if notification permission is already granted
+  if (Notification.permission === "granted") {
+    // Create notification
+    new Notification("Patient Called", {
+      body: message,
+      icon: "/logo.png"
+    });
+  } else if (Notification.permission !== "denied") {
+    // Request permission from user
+    Notification.requestPermission().then(permission => {
+      if (permission === "granted") {
+        new Notification("Patient Called", {
+          body: message,
+          icon: "/logo.png"
+        });
+      }
+    });
+  }
+};
+
+const navigate = useNavigate();
+
+const handleGoToBilling = (visitId: number, patientId: number, patientName: string) => {
+  // Navigate to billing page with parameters
+  navigate(`/receptionist/billing`, {
+    state: {
+      visitId,
+      patientId,
+      patientName,
+      fromQueue: true
+    }
+  });
+};
+
   return (
     <>
       <Card>
@@ -524,6 +611,7 @@ const getStatusBadge = (visit: any) => {
                   </div>
                   
                   {/* Receptionist Actions */}
+{/* Receptionist Actions */}
 <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
   {/* Pharmacy: Waiting for medicine */}
   {(visit.QueueStatus === 'waiting' && visit.VisitStatus === 'waiting-prescription') && (
@@ -547,10 +635,11 @@ const getStatusBadge = (visit: any) => {
       size="sm" 
       variant="default"
       className="flex-1 bg-orange-600 hover:bg-orange-700 text-white"
-      onClick={async () => {
-        // Call patient to billing
-        console.log('Call patient to billing:', visit.VisitID);
-      }}
+      onClick={() => handleCallPatient(
+        visit.VisitID, 
+        visit.patientName, 
+        visit.QueueNumber
+      )}
     >
       <Bell className="size-3 mr-1" />
       Call patient
@@ -559,18 +648,23 @@ const getStatusBadge = (visit: any) => {
   
   {/* Billing: Go to billing button - Patient has been called */}
   {(visit.QueueStatus === 'in-progress' && visit.VisitStatus === 'to-be-billed') && (
-    <Button 
-      size="sm" 
-      variant="default"
-      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-      onClick={async () => {
-        // Go to billing
-        console.log('Go to billing:', visit.VisitID);
-      }}
-    >
-      <CheckCircle className="size-3 mr-1" />
-      Go to billing
-    </Button>
+  <Button 
+    size="sm" 
+    variant="default"
+    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+    onClick={() => {
+      if (onNavigateToBilling) {
+        onNavigateToBilling({
+          visitId: visit.VisitID,
+          patientId: visit.PatientID,
+          patientName: visit.patientName
+        });
+      }
+    }}
+  >
+    <CheckCircle className="size-3 mr-1" />
+    Go to billing
+  </Button>
   )}
   
   {/* In consultation with doctor - Only show if NOT billing or pharmacy */}

@@ -22,7 +22,8 @@ import { PatientManagementTab } from './PatientManagementTab';
 
 export function DoctorPortal() {
   // UPDATE activeTab to include 'prescription-mgmt'
-  const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'patient-mgmt' | 'vitals'>('consultation');
+// UPDATE: Change 'consultation' to 'queue' as the default active tab
+const [activeTab, setActiveTab] = useState<'consultation' | 'queue' | 'patient-mgmt' | 'vitals'>('queue');
   const [doctorId, setDoctorId] = useState<number | null>(null);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
   const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
@@ -158,7 +159,7 @@ export function DoctorPortal() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <NotificationPanel role="doctor" />
+            
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setShowProfile(true)}>
               <Avatar>
                 <AvatarFallback className="bg-blue-600 text-white">
@@ -195,17 +196,7 @@ export function DoctorPortal() {
           </div>
       
 <div className="flex gap-2 border-b">
-  <button
-    onClick={() => setActiveTab('consultation')}
-    className={`px-4 py-2 border-b-2 transition-colors ${
-      activeTab === 'consultation'
-        ? 'border-blue-600 text-blue-600'
-        : 'border-transparent text-gray-600 hover:text-gray-900'
-    }`}
-  >
-    <ClipboardList className="size-4 inline mr-2" />
-    Consultation
-  </button>
+  {/* Make Queue the first tab */}
   <button
     onClick={() => setActiveTab('queue')}
     className={`px-4 py-2 border-b-2 transition-colors ${
@@ -217,19 +208,41 @@ export function DoctorPortal() {
     <Users className="size-4 inline mr-2" />
     Patient Queue
   </button>
-<button
-  onClick={() => setActiveTab('patient-mgmt')}
-  className={`px-4 py-2 border-b-2 transition-colors ${
-    activeTab === 'patient-mgmt'
-      ? 'border-blue-600 text-blue-600'
-      : 'border-transparent text-gray-600 hover:text-gray-900'
-  }`}
->
-  <Users className="size-4 inline mr-2" />
-  Patient Management
-</button>
-
+  
+  <button
+    onClick={() => setActiveTab('consultation')}
+    className={`px-4 py-2 border-b-2 transition-colors ${
+      activeTab === 'consultation'
+        ? 'border-blue-600 text-blue-600'
+        : 'border-transparent text-gray-600 hover:text-gray-900'
+    }`}
+  >
+    <ClipboardList className="size-4 inline mr-2" />
+    Consultation
+  </button>
+  
+  <button
+    onClick={() => setActiveTab('patient-mgmt')}
+    className={`px-4 py-2 border-b-2 transition-colors ${
+      activeTab === 'patient-mgmt'
+        ? 'border-blue-600 text-blue-600'
+        : 'border-transparent text-gray-600 hover:text-gray-900'
+    }`}
+  >
+    <Users className="size-4 inline mr-2" />
+    Patient Management
+  </button>
 </div>
+
+{/* Update the conditional rendering order */}
+{activeTab === 'queue' && (
+  <PatientQueue 
+    doctorId={doctorId}
+    refreshData={() => {
+      window.location.reload();
+    }}
+  />
+)}
 
 {activeTab === 'consultation' && (
   <ConsultationTab 
@@ -240,16 +253,7 @@ export function DoctorPortal() {
   />
 )}
 
-{activeTab === 'queue' && (
-  <PatientQueue 
-    doctorId={doctorId}
-    refreshData={() => {
-      window.location.reload();
-    }}
-  />
-)}
-
-{activeTab === 'patient-mgmt' && ( // ADDED this new tab
+{activeTab === 'patient-mgmt' && (
   <PatientManagementTab />
 )}
 

@@ -47,11 +47,11 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
   
   // Dispensing History (UPDATED LIMIT)
   const [historyPage, setHistoryPage] = useState(1);
-  const historyPerPage = 13; // 👈 Changed to 13
+  const historyPerPage = 13; 
 
   // Expiry Tracking (UPDATED LIMIT)
   const [expiryPage, setExpiryPage] = useState(1);
-  const expiryPerPage = 10; // 👈 Changed to 10
+  const expiryPerPage = 10; 
 
   // Sorting
   const [sortOption, setSortOption] = useState('name-asc');
@@ -64,6 +64,7 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
   const [showDispenseScanner, setShowDispenseScanner] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [showDisposeDialog, setShowDisposeDialog] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false); 
   
   // Selected Data
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -89,6 +90,26 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
   const [reorderFormData, setReorderFormData] = useState({
     quantity: '', supplier: '', urgency: 'medium', notes: ''
   });
+
+  const [categorySearch, setCategorySearch] = useState('');
+  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+
+  // 📋 Full List of Drug Categories (Matches Database ENUM)
+  const drugCategories = [
+    "Analgesic/Antipyretic", "NSAID", "Antiplatelet/Analgesic", "Antibiotic", "Statin", 
+    "ACE Inhibitor", "Beta Blocker", "Calcium Channel Blocker", "Antidiabetic", "Sulfonylurea", 
+    "Insulin", "Bronchodilator", "Leukotriene Receptor Antagonist", "Antihistamine", 
+    "Proton Pump Inhibitor", "H2 Blocker", "Antidiarrheal", "SSRI", "Benzodiazepine", 
+    "Antipsychotic", "Emergency Drug", "Opioid Antagonist", "Topical Steroid", 
+    "Topical Antibiotic", "Vitamin Supplement", "Macrolide Antibiotic", "Fluoroquinolone", 
+    "Opioid Analgesic", "Anticonvulsant/Analgesic", "Anticoagulant", "Antiplatelet", 
+    "Antiemetic", "Corticosteroid", "DPP-4 Inhibitor", "Diuretic", "Antifungal", 
+    "Acne Treatment", "Antibiotic (Pediatric)", "Analgesic (Pediatric)", "Sedative", 
+    "General", "Supplement", "Antiviral", "Antimalarial", "Anesthetic", "Muscle Relaxant", 
+    "Immunosuppressant", "Chemotherapy", "Hormone Replacement", "Contraceptive", "Laxative", 
+    "Decongestant", "Expectorant", "Vaccine", "Antiseptic", "Barbiturate", "Stimulant", 
+    "Bisphosphonate", "Ophthalmic Agent", "Otic Agent", "Nasal Preparation"
+  ].sort(); // Sorts them A-Z automatically
 
   // =========================
   // 2. EFFECTS
@@ -154,6 +175,10 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
       }
     } catch (error) { console.error(error); } 
     finally { setLoadingInventory(false); }
+  };
+
+  const handleSignOut = () => {
+    onSignOut(); 
   };
 
   const fetchPendingRx = async () => {
@@ -233,7 +258,7 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
               body: JSON.stringify({
                   drugId: selectedItem.id,
-                  batchId: selectedItem.batchId, // 👈 ADD THIS LINE
+                  batchId: selectedItem.batchId,
                   quantity: selectedItem.stock, 
                   reason: 'Expired'
               })
@@ -242,8 +267,8 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
           if (response.ok) {
               alert(`✅ Successfully disposed ${selectedItem.stock} units of ${selectedItem.name}`);
               setShowDisposeDialog(false);
-              fetchExpiringDrugs(); // Refresh the list
-              fetchInventory();     // Refresh the main count
+              fetchExpiringDrugs(); 
+              fetchInventory();     
           } else {
               alert("❌ Failed to dispose item");
           }
@@ -398,11 +423,11 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
   const paginatedInventory = sortedInventory.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const lowStockItems = inventoryItems.filter(item => item.status === 'low' || item.status === 'critical');
 
-  // ⚡ Expiry Pagination Logic (NEW)
+  // ⚡ Expiry Pagination Logic
   const totalExpiryPages = Math.ceil(expiringItems.length / expiryPerPage);
   const paginatedExpiryItems = expiringItems.slice((expiryPage - 1) * expiryPerPage, expiryPage * expiryPerPage);
 
-  // ⚡ Dispensing History Pagination Logic (NEW)
+  // ⚡ Dispensing History Pagination Logic
   const totalHistoryPages = Math.ceil(dispensingHistory.length / historyPerPage);
   const paginatedHistory = dispensingHistory.slice((historyPage - 1) * historyPerPage, historyPage * historyPerPage);
   
@@ -435,9 +460,15 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
             <div><h1 className="text-xl text-gray-900">Pharmacist Portal</h1><p className="text-sm text-gray-500">Inventory & Medication Management</p></div>
           </div>
           <div className="flex items-center gap-4">
-             
              <Avatar className="cursor-pointer" onClick={() => setShowProfile(true)}><AvatarFallback className="bg-purple-600 text-white">{pharmacistProfile.initials}</AvatarFallback></Avatar>
-             <Button variant="ghost" onClick={onSignOut}><LogOut className="size-5" /></Button>
+             <Button 
+                variant="destructive"
+                onClick={() => setShowLogoutConfirm(true)}
+                className="hover:bg-red-700 transition-colors"
+              >
+                <LogOut className="size-4 mr-2" />
+                Log Out
+              </Button>
           </div>
         </div>
       </header>
@@ -464,8 +495,31 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
                   <div className="flex justify-between">
                     <div><CardTitle>Medication Inventory</CardTitle><CardDescription>Click a row to see batch details</CardDescription></div>
                     <div className="flex gap-2">
-                        <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" /><Input placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="pl-9 w-48" /></div>
-                        <Select value={sortOption} onValueChange={setSortOption}><SelectTrigger className="w-[140px]"><ArrowUpDown className="mr-2 h-4 w-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="name-asc">Name A-Z</SelectItem><SelectItem value="stock-asc">Stock Low-High</SelectItem></SelectContent></Select>
+                        {/* ... inside activeTab === 'inventory' -> CardHeader ... */}
+                    
+                    <div className="flex gap-2">
+                        {/* SEARCH BAR */}
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                            <Input 
+                                placeholder="Search name..." 
+                                value={searchQuery} 
+                                onChange={e => setSearchQuery(e.target.value)} 
+                                className="pl-10 w-64" 
+                            />
+                        </div>
+
+                        <Select value={sortOption} onValueChange={setSortOption}>
+                            <SelectTrigger className="w-[140px]">
+                                <ArrowUpDown className="mr-2 h-4 w-4" />
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="name-asc">Name A-Z</SelectItem>
+                                <SelectItem value="stock-asc">Stock Low-High</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                     </div>
                   </div>
                 </CardHeader>
@@ -523,9 +577,9 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
                 </CardContent>
               </Card>
 
-              {/* Pending RX Card */}
+              {/* Pending Prescription Card */}
               <Card className="lg:col-span-1 h-fit">
-                <CardHeader className="flex flex-row justify-between"><div><CardTitle>Pending RX</CardTitle><CardDescription>Queue to fulfill</CardDescription></div><Button variant="ghost" size="sm" onClick={fetchPendingRx}><RefreshCw className="size-4" /></Button></CardHeader>
+                <CardHeader className="flex flex-row justify-between"><div><CardTitle>Pending Prescription</CardTitle><CardDescription>Queue to fulfill</CardDescription></div><Button variant="ghost" size="sm" onClick={fetchPendingRx}><RefreshCw className="size-4" /></Button></CardHeader>
                 <CardContent className="space-y-4">
                     {pendingRxList.map((group: any) => (
                         <div key={group.prescriptionId} className="p-4 border rounded-lg bg-white shadow-sm">
@@ -696,9 +750,12 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
           </DialogContent>
       </Dialog>
 
-      {/* 2. DISPENSE SCANNER */}
+      {/* 2. DISPENSE SCANNER (FIXED WIDTH & TEXT) */}
       <Dialog open={showDispenseScanner} onOpenChange={setShowDispenseScanner}>
-        <DialogContent className="max-w-4xl">
+        {/* FIX: Used 'sm:max-w-6xl' to override the default responsive width. 
+            Added 'w-full' to ensure it stretches.
+        */}
+        <DialogContent className="sm:max-w-6xl w-full"> 
             <DialogHeader>
                 <DialogTitle className="flex justify-between items-center text-xl">
                     <span>Dispensing for {selectedPrescriptionGroup?.patient}</span>
@@ -719,7 +776,7 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
                 </div>
                 <div className="border rounded-xl overflow-hidden shadow-sm">
                     <div className="bg-gray-50 px-4 py-3 border-b text-sm font-semibold text-gray-600">Prescription Items</div>
-                    <div className="divide-y max-h-[350px] overflow-y-auto">
+                    <div className="divide-y max-h-[450px] overflow-y-auto">
                         {selectedPrescriptionGroup?.items?.map((item: any) => {
                             const dispensed = item.dispensedCount || 0;
                             const total = item.quantity;
@@ -727,11 +784,48 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
                             const isItemComplete = remaining <= 0;
                             return (
                                 <div key={item.itemId} className={`p-4 flex items-center justify-between transition-colors ${isItemComplete ? 'bg-green-50' : 'bg-white'}`}>
-                                    <div className="flex items-center gap-4">
-                                        {isItemComplete ? <div className="bg-green-100 p-2 rounded-full"><CheckCircle2 className="size-6 text-green-600" /></div> : <div className="size-10 rounded-full border-2 border-purple-200 bg-purple-50 flex items-center justify-center text-purple-700 font-bold">{remaining}</div>}
-                                        <div><p className={`font-bold ${isItemComplete ? 'text-green-800' : 'text-gray-800'}`}>{item.medication}</p><p className="text-xs text-gray-500">{isItemComplete ? "Completed" : `Need to scan ${remaining} more`}</p></div>
+                                    <div className="flex items-center gap-4 w-full">
+                                        {/* Status Icon */}
+                                        {isItemComplete ? (
+                                            <div className="bg-green-100 p-2 rounded-full flex-shrink-0">
+                                                <CheckCircle2 className="size-6 text-green-600" />
+                                            </div>
+                                        ) : (
+                                            <div className="size-10 rounded-full border-2 border-purple-200 bg-purple-50 flex-shrink-0 flex items-center justify-center text-purple-700 font-bold">
+                                                {remaining}
+                                            </div>
+                                        )}
+
+                                        {/* Detailed Info Column */}
+                                        <div className="flex-1">
+                                            <p className={`font-bold text-base ${isItemComplete ? 'text-green-800' : 'text-gray-900'}`}>
+                                                {item.medication}
+                                            </p>
+
+                                            {/* Prescription Instructions Box */}
+                                            <div className="mt-1.5 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-600 bg-gray-50/80 p-2 rounded border border-gray-100">
+                                                <div>
+                                                    <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Dosage</span>
+                                                    <p className="font-medium text-gray-800">{item.dosage || 'N/A'}</p>
+                                                </div>
+                                                <div>
+                                                    <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Qty</span>
+                                                    <p className="font-medium text-gray-800">{item.quantity} Units</p>
+                                                </div>
+                                                <div className="col-span-2">
+                                                    <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Instructions</span>
+                                                    <p className="font-medium text-gray-800">
+                                                        {item.frequency || 'Daily'} • {item.duration || '7 days'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Scan Status Text - UPDATED FORMAT */}
+                                            <p className="text-[10px] text-gray-400 mt-1 pl-1">
+                                                {isItemComplete ? "Dispensing Complete" : `Waiting for scan... ${dispensed}/${total} scanned`}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className="text-right text-xs text-gray-400">{dispensed} / {total} scanned</div>
                                 </div>
                             );
                         })}
@@ -745,7 +839,7 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {/* 3. ADD ITEM DIALOG (FIXED WITH MIN QTY) */}
+      {/* 3. ADD ITEM DIALOG */}
       <Dialog open={showAddItem} onOpenChange={setShowAddItem}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader><DialogTitle>Add New Medication</DialogTitle><DialogDescription>Register a new item to the inventory database.</DialogDescription></DialogHeader>
@@ -757,9 +851,75 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
               <div className="grid gap-2"><Label>Min Qty</Label><div className="relative"><AlertTriangle className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" /><Input className="pl-10" type="number" value={newItemData.MinStockLevel} onChange={(e) => setNewItemData({...newItemData, MinStockLevel: e.target.value})} placeholder="10" /></div></div>
               <div className="grid gap-2"><Label>Price</Label><div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" /><Input className="pl-10" type="number" value={newItemData.UnitPrice} onChange={(e) => setNewItemData({...newItemData, UnitPrice: e.target.value})} placeholder="0.00" /></div></div>
             </div>
-            <div className="grid gap-2"><Label>Expiry Date</Label><Input type="date" value={newItemData.ExpiryDate} onChange={(e) => setNewItemData({...newItemData, ExpiryDate: e.target.value})} /></div>
-            <div className="grid gap-2"><Label>Category</Label><Select onValueChange={(val) => setNewItemData({...newItemData, Category: val})}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="Antibiotic">Antibiotic</SelectItem><SelectItem value="Analgesic">Analgesic</SelectItem><SelectItem value="General">General</SelectItem><SelectItem value="Supplement">Supplement</SelectItem></SelectContent></Select></div>
-          </div>
+            <div className="grid gap-2 relative">
+              <Label>Category</Label>
+              
+              {/* 1. THE TRIGGER BUTTON (Looks like a Select input) */}
+              <Button 
+                variant="outline" 
+                role="combobox"
+                className="w-full justify-between bg-white font-normal text-left"
+                onClick={() => {
+                  setIsCategoryOpen(!isCategoryOpen);
+                  setCategorySearch(""); // Reset search when opening
+                }}
+              >
+                {newItemData.Category ? newItemData.Category : <span className="text-gray-500">Select category</span>}
+                <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+
+              {/* 2. THE DROPDOWN MENU (Appears when open) */}
+              {isCategoryOpen && (
+                <>
+                  {/* Invisible Overlay to close menu when clicking outside */}
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setIsCategoryOpen(false)}
+                  />
+
+                  {/* The Actual Dropdown Box */}
+                  <div className="absolute top-full mt-1 w-full z-50 rounded-md border bg-white shadow-md">
+                    {/* Search Input */}
+                    <div className="p-2 border-b">
+                      <Input
+                        placeholder="Search category..."
+                        value={categorySearch}
+                        onChange={(e) => setCategorySearch(e.target.value)}
+                        autoFocus
+                        className="h-8"
+                      />
+                    </div>
+                    
+                    {/* Scrollable List */}
+                    <div className="max-h-[200px] overflow-y-auto p-1">
+                      {drugCategories
+                        .filter((cat) => cat.toLowerCase().includes(categorySearch.toLowerCase()))
+                        .map((category) => (
+                          <div
+                            key={category}
+                            className={`
+                              cursor-pointer px-2 py-1.5 text-sm rounded-sm hover:bg-purple-50 hover:text-purple-900
+                              ${newItemData.Category === category ? 'bg-purple-100 text-purple-900 font-medium' : 'text-gray-900'}
+                            `}
+                            onClick={() => {
+                              setNewItemData({ ...newItemData, Category: category });
+                              setIsCategoryOpen(false);
+                            }}
+                          >
+                            {category}
+                          </div>
+                        ))}
+
+                      {/* No Results State */}
+                      {drugCategories.filter(cat => cat.toLowerCase().includes(categorySearch.toLowerCase())).length === 0 && (
+                        <p className="p-2 text-sm text-gray-400 text-center">No category found.</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            </div>
           <DialogFooter><Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={handleRegisterDrug} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}{isSubmitting ? 'Registering...' : 'Register Item'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -817,6 +977,22 @@ export function PharmacistPortal({ onSignOut }: { onSignOut: () => void }) {
       {/* 7. RECEIPT DIALOG */}
       <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
          <DialogContent><DialogHeader><DialogTitle>Receipt</DialogTitle></DialogHeader><p>Receipt printing...</p></DialogContent>
+      </Dialog>
+
+      {/* Logout Confirmation Dialog - Ensure you have this since showLogoutConfirm is used */}
+      <Dialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Logout</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to sign out?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLogoutConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleSignOut}>Log Out</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       <ProfileModal open={showProfile} onOpenChange={setShowProfile} profile={pharmacistProfile} />

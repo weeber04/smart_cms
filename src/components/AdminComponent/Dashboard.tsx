@@ -231,10 +231,7 @@ export function Dashboard() {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="size-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </Button>
+
               <div className="flex items-center gap-3">
                 <Avatar>
                   <AvatarFallback className="bg-blue-600 text-white">AD</AvatarFallback>

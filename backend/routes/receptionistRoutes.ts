@@ -81,6 +81,7 @@ router.get('/medication-items/:consultationId', medicationItems);
 // Profile & Dashboard
 router.get('/profile/:receptionistId', getReceptionistProfile);
 router.get('/dashboard-stats', getDashboardStats);
+router.post("/call-to-billing", callPatientToBilling);
 
 // Patient Management
 router.get('/search-patient', searchPatient);
@@ -89,7 +90,6 @@ router.post('/register-patient', registerPatient);
 
 // NEW: Walk-in registration route
 router.post('/walkin', registerWalkIn);
-router.post('/call-patient-to-billing', callPatientToBilling);
 router.post('/go-to-billing', goToBilling);
 
 // Appointment Management

@@ -62,7 +62,7 @@ export function PatientQueue({ doctorId, refreshData }: PatientQueueProps) {
   const [showTriageLegend, setShowTriageLegend] = useState(true);
   const [expandedCards, setExpandedCards] = useState<number[]>([]);
   const [filterPriority, setFilterPriority] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<string>('mine');
   const [viewMode, setViewMode] = useState<'list' | 'compact'>('list');
   const [currentlyCalledPatient, setCurrentlyCalledPatient] = useState<number | null>(null);
   const [calledPatientData, setCalledPatientData] = useState<any>(null);
@@ -374,21 +374,6 @@ useEffect(() => {
   }
 }, [doctorId]);
 
-  const getCurrentPatients = () => {
-    switch (activeTab) {
-      case 'mine':
-        return filteredAssignedPatients;
-      case 'appointments':
-        return filteredAppointments;
-      case 'available':
-        return filteredUnassignedPatients;
-      case 'all':
-      default:
-        return [...filteredUnassignedPatients, ...filteredAssignedPatients, ...filteredAppointments];
-    }
-  };
-
-  const currentPatients = getCurrentPatients();
 
 const handleRefresh = async () => {
   await fetchAllData();
@@ -1025,6 +1010,130 @@ if (isInProgress && isAssignedToMe) {
     );
   };
 
+  const [currentPage, setCurrentPage] = useState<number>(1);
+const [itemsPerPage, setItemsPerPage] = useState<number>(3);
+const [paginationPerTab, setPaginationPerTab] = useState<{[key: string]: number}>({
+  all: 1,
+  mine: 1,
+  available: 1,
+  appointments: 1
+});
+
+// Add after your other functions
+const getCurrentPatients = () => {
+  switch (activeTab) {
+    case 'mine':
+      return filteredAssignedPatients;
+    case 'appointments':
+      return filteredAppointments;
+    case 'available':
+      return filteredUnassignedPatients;
+    case 'all':
+    default:
+      return [...filteredUnassignedPatients, ...filteredAssignedPatients, ...filteredAppointments];
+  }
+};
+
+const currentPatients = getCurrentPatients();
+
+// Pagination calculations
+const currentPageForTab = paginationPerTab[activeTab] || 1;
+const indexOfLastItem = currentPageForTab * itemsPerPage;
+const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+const currentItems = currentPatients.slice(indexOfFirstItem, indexOfLastItem);
+const totalPages = Math.ceil(currentPatients.length / itemsPerPage);
+
+const handlePageChange = (pageNumber: number) => {
+  setPaginationPerTab(prev => ({
+    ...prev,
+    [activeTab]: pageNumber
+  }));
+};
+
+const handleTabChange = (tab: string) => {
+  setActiveTab(tab);
+  setPaginationPerTab(prev => ({
+    ...prev,
+    [activeTab]: 1 // Reset to page 1 when switching tabs
+  }));
+};
+
+const handleItemsPerPageChange = (value: string) => {
+  setItemsPerPage(parseInt(value));
+  setPaginationPerTab({
+    all: 1,
+    mine: 1,
+    available: 1,
+    appointments: 1
+  });
+};
+
+const renderPaginationControls = () => {
+  if (currentPatients.length <= itemsPerPage) return null;
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t">
+      {/* REMOVE THE ITEMS PER PAGE SELECTOR */}
+      <div className="text-sm text-gray-600">
+        Showing {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, currentPatients.length)} of {currentPatients.length} patients
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handlePageChange(Math.max(1, currentPageForTab - 1))}
+          disabled={currentPageForTab === 1}
+          className="px-3"
+        >
+          Previous
+        </Button>
+
+        <div className="flex items-center gap-1">
+          {(() => {
+            const pageNumbers = [];
+            const maxVisiblePages = 5;
+            let startPage = Math.max(1, currentPageForTab - Math.floor(maxVisiblePages / 2));
+            let endPage = startPage + maxVisiblePages - 1;
+            
+            if (endPage > totalPages) {
+              endPage = totalPages;
+              startPage = Math.max(1, endPage - maxVisiblePages + 1);
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+              pageNumbers.push(
+                <Button
+                  key={i}
+                  variant={currentPageForTab === i ? "default" : "outline"}
+                  size="sm"
+                  className="w-8 h-8 p-0"
+                  onClick={() => handlePageChange(i)}
+                >
+                  {i}
+                </Button>
+              );
+            }
+            return pageNumbers;
+          })()}
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handlePageChange(Math.min(totalPages, currentPageForTab + 1))}
+          disabled={currentPageForTab === totalPages}
+          className="px-3"
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+const ITEMS_PER_TAB = 4;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1110,23 +1219,6 @@ if (isInProgress && isAssignedToMe) {
         </div>
       </div>
       <div className="flex items-center gap-2">
-{/* <Button
-  variant="outline"
-  size="sm"
-  className="border-blue-300 text-blue-700 hover:bg-blue-100"
-  onClick={() => {
-    // Navigate to doctor consultation page
-    navigate('/doctor/consultation', {
-      state: {
-        patientId: currentlyCalledPatient,
-        patientData: calledPatientData,
-        doctorId: doctorId
-      }
-    });
-  }}
->
-  Go to Consultation
-</Button> */}
   <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">
     <User className="size-3 mr-1" />
     In Consultation
@@ -1165,91 +1257,103 @@ if (isInProgress && isAssignedToMe) {
             </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid grid-cols-4 mb-4">
-              <TabsTrigger value="all" className="flex items-center gap-2">
-                <Users className="size-4" />
-                All
-                <Badge variant="secondary" className="ml-1">
-                  {filteredUnassignedPatients.length + filteredAssignedPatients.length + filteredAppointments.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="mine" className="flex items-center gap-2">
-                <UserCheck className="size-4" />
-                My Patients
-                <Badge variant="secondary" className="ml-1">{filteredAssignedPatients.length}</Badge>
-              </TabsTrigger>
-              <TabsTrigger value="available" className="flex items-center gap-2">
-                <UserPlus className="size-4" />
-                Available
-                <Badge variant="secondary" className="ml-1">{filteredUnassignedPatients.length}</Badge>
-              </TabsTrigger>
-              <TabsTrigger value="appointments" className="flex items-center gap-2">
-                <Calendar className="size-4" />
-                Appointments
-                <Badge variant="secondary" className="ml-1">{filteredAppointments.length}</Badge>
-              </TabsTrigger>
-            </TabsList>
+<Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+  <TabsList className="grid grid-cols-4 mb-4">
+    <TabsTrigger value="all" className="flex items-center gap-2">
+      <Users className="size-4" />
+      All
+      <Badge variant="secondary" className="ml-1">
+        {filteredUnassignedPatients.length + filteredAssignedPatients.length + filteredAppointments.length}
+      </Badge>
+    </TabsTrigger>
+    <TabsTrigger value="mine" className="flex items-center gap-2">
+      <UserCheck className="size-4" />
+      My Patients
+      <Badge variant="secondary" className="ml-1">{filteredAssignedPatients.length}</Badge>
+    </TabsTrigger>
+    <TabsTrigger value="available" className="flex items-center gap-2">
+      <UserPlus className="size-4" />
+      Available
+      <Badge variant="secondary" className="ml-1">{filteredUnassignedPatients.length}</Badge>
+    </TabsTrigger>
+    <TabsTrigger value="appointments" className="flex items-center gap-2">
+      <Calendar className="size-4" />
+      Appointments
+      <Badge variant="secondary" className="ml-1">{filteredAppointments.length}</Badge>
+    </TabsTrigger>
+  </TabsList>
 
-            <TabsContent value="all" className="space-y-2">
-              {currentPatients.length > 0 ? (
-                <div className="space-y-2">
-                  {currentPatients.map(patient => {
-                    const isAssigned = assignedPatients.some(p => p.VisitID === patient.VisitID && p.isAssignedToCurrentDoctor);
-                    const isAppointment = appointments.some(p => p.VisitID === patient.VisitID);
-                    return renderPatientCard(patient, isAssigned, isAppointment);
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500 border rounded-lg">
-                  <Users className="size-12 mx-auto mb-3 text-gray-400" />
-                  <p className="font-medium">No patients found</p>
-                  <p className="text-sm mt-1">Try changing your search or filter criteria</p>
-                </div>
-              )}
-            </TabsContent>
+  <TabsContent value="all" className="space-y-2">
+    {currentItems.length > 0 ? (
+      <>
+        <div className="space-y-2">
+          {currentItems.map(patient => {
+            const isAssigned = assignedPatients.some(p => p.VisitID === patient.VisitID && p.isAssignedToCurrentDoctor);
+            const isAppointment = appointments.some(p => p.VisitID === patient.VisitID);
+            return renderPatientCard(patient, isAssigned, isAppointment);
+          })}
+        </div>
+        {renderPaginationControls()}
+      </>
+    ) : (
+      <div className="text-center py-12 text-gray-500 border rounded-lg">
+        <Users className="size-12 mx-auto mb-3 text-gray-400" />
+        <p className="font-medium">No patients found</p>
+        <p className="text-sm mt-1">Try changing your search or filter criteria</p>
+      </div>
+    )}
+  </TabsContent>
 
-            <TabsContent value="mine" className="space-y-2">
-              {filteredAssignedPatients.length > 0 ? (
-                <div className="space-y-2">
-                  {filteredAssignedPatients.map(patient => renderPatientCard(patient, true))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500 border rounded-lg">
-                  <UserCheck className="size-12 mx-auto mb-3 text-gray-400" />
-                  <p>No patients assigned to you</p>
-                  <p className="text-sm mt-1">Claim patients from the Available section</p>
-                </div>
-              )}
-            </TabsContent>
+  <TabsContent value="mine" className="space-y-2">
+    {currentItems.length > 0 ? (
+      <>
+        <div className="space-y-2">
+          {currentItems.map(patient => renderPatientCard(patient, true))}
+        </div>
+        {renderPaginationControls()}
+      </>
+    ) : (
+      <div className="text-center py-12 text-gray-500 border rounded-lg">
+        <UserCheck className="size-12 mx-auto mb-3 text-gray-400" />
+        <p>No patients assigned to you</p>
+        <p className="text-sm mt-1">Claim patients from the Available section</p>
+      </div>
+    )}
+  </TabsContent>
 
-            <TabsContent value="available" className="space-y-2">
-              {filteredUnassignedPatients.length > 0 ? (
-                <div className="space-y-2">
-                  {filteredUnassignedPatients.map(patient => renderPatientCard(patient, false))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500 border rounded-lg">
-                  <UserPlus className="size-12 mx-auto mb-3 text-gray-400" />
-                  <p>No available patients to claim</p>
-                  <p className="text-sm mt-1">New patients will appear here when they check in</p>
-                </div>
-              )}
-            </TabsContent>
+  <TabsContent value="available" className="space-y-2">
+    {currentItems.length > 0 ? (
+      <>
+        <div className="space-y-2">
+          {currentItems.map(patient => renderPatientCard(patient, false))}
+        </div>
+        {renderPaginationControls()}
+      </>
+    ) : (
+      <div className="text-center py-12 text-gray-500 border rounded-lg">
+        <UserPlus className="size-12 mx-auto mb-3 text-gray-400" />
+        <p>No available patients to claim</p>
+        <p className="text-sm mt-1">New patients will appear here when they check in</p>
+      </div>
+    )}
+  </TabsContent>
 
-            <TabsContent value="appointments" className="space-y-2">
-              {filteredAppointments.length > 0 ? (
-                <div className="space-y-2">
-                  {filteredAppointments.map(patient => renderPatientCard(patient, false, true))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-gray-500 border rounded-lg">
-                  <Calendar className="size-12 mx-auto mb-3 text-gray-400" />
-                  <p>No appointments scheduled for today</p>
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
+  <TabsContent value="appointments" className="space-y-2">
+    {currentItems.length > 0 ? (
+      <>
+        <div className="space-y-2">
+          {currentItems.map(patient => renderPatientCard(patient, false, true))}
+        </div>
+        {renderPaginationControls()}
+      </>
+    ) : (
+      <div className="text-center py-12 text-gray-500 border rounded-lg">
+        <Calendar className="size-12 mx-auto mb-3 text-gray-400" />
+        <p>No appointments scheduled for today</p>
+      </div>
+    )}
+  </TabsContent>
+</Tabs>
         </div>
 
         <div className="lg:col-span-1 space-y-4">
